@@ -305,15 +305,17 @@ public class CFG {
         BasicBlock currBB = firstBB;
         BasicBlock newBB = null;
         boolean bbEnded = false;
-        boolean bbEndedWithControlXfer = false;
+        boolean nextBBisFallThrough = true;
         for (Instr i : instrs) {
             Operation iop = i.getOperation();
             if (iop == Operation.LABEL) {
                 Label l = ((LabelInstr) i).label;
                 newBB = createNewBB(l, g, bbMap, nestedExceptionRegions);
                 // Jump instruction bbs dont add an edge to the succeeding bb by default
-                if (!bbEndedWithControlXfer) g.addEdge(currBB, newBB, EdgeType.REGULAR);
+                if (nextBBisFallThrough) g.addEdge(currBB, newBB, EdgeType.FALL_THROUGH);
                 currBB = newBB;
+                bbEnded = false;
+                nextBBisFallThrough = true;
 
                 // Add forward reference edges
                 List<BasicBlock> frefs = forwardRefs.get(l);
@@ -322,22 +324,20 @@ public class CFG {
                         g.addEdge(b, newBB, EdgeType.REGULAR);
                     }
                 }
-                bbEnded = false;
-                bbEndedWithControlXfer = false;
             } else if (bbEnded && (iop != Operation.EXC_REGION_END)) {
                 newBB = createNewBB(g, bbMap, nestedExceptionRegions);
                 // Jump instruction bbs dont add an edge to the succeeding bb by default
-                if (!bbEndedWithControlXfer) g.addEdge(currBB, newBB, EdgeType.FALL_THROUGH); // currBB cannot be null!
+                if (nextBBisFallThrough) g.addEdge(currBB, newBB, EdgeType.FALL_THROUGH); // currBB cannot be null!
                 currBB = newBB;
                 bbEnded = false;
-                bbEndedWithControlXfer = false;
+                nextBBisFallThrough = true;
             }
 
             if (i instanceof ExceptionRegionStartMarkerInstr) {
 // SSS: Do we need this anymore?
 //                currBB.addInstr(i);
                 ExceptionRegionStartMarkerInstr ersmi = (ExceptionRegionStartMarkerInstr) i;
-                ExceptionRegion rr = new ExceptionRegion(ersmi.rescueBlockLabels, ersmi.ensureBlockLabel);
+                ExceptionRegion rr = new ExceptionRegion(ersmi.firstRescueBlockLabel, ersmi.ensureBlockLabel);
                 rr.addBB(currBB);
                 allExceptionRegions.add(rr);
 
@@ -356,26 +356,20 @@ public class CFG {
                 bbEnded = true;
                 currBB.addInstr(i);
                 Label tgt;
+                nextBBisFallThrough = false;
                 if (i instanceof BranchInstr) {
                     tgt = ((BranchInstr) i).getJumpTarget();
+                    nextBBisFallThrough = true;
                 } else if (i instanceof JumpInstr) {
                     tgt = ((JumpInstr) i).getJumpTarget();
-                    bbEndedWithControlXfer = true;
-                } else if (i instanceof CaseInstr) {
-                    // CASE IR instructions are dummy instructions
-                    // -- all when/then clauses have been converted into if-then-else blocks
-                    tgt = null;
                 } else if (iop.isReturn()) { // BREAK, RETURN, CLOSURE_RETURN
                     tgt = null;
                     retBBs.add(currBB);
-                    bbEndedWithControlXfer = true;
                 } else if (i instanceof ThrowExceptionInstr) {
                     tgt = null;
                     excBBs.add(currBB);
-                    bbEndedWithControlXfer = true;
                 } else if (i instanceof JumpIndirectInstr) {
                     tgt = null;
-                    bbEndedWithControlXfer = true;
                     Set<Label> retAddrs = retAddrMap.get(((JumpIndirectInstr) i).getJumpTarget());
                     for (Label l : retAddrs) {
                         addEdge(g, currBB, l, forwardRefs);
@@ -383,7 +377,7 @@ public class CFG {
                     // Record the target bb for the retaddr var for any set_addr instrs that appear later and use the same retaddr var
                     retAddrTargetMap.put(((JumpIndirectInstr) i).getJumpTarget(), currBB);
                 } else {
-                    tgt = null;
+                    throw new RuntimeException("Unhandled case in CFG builder for basic block ending instr: " + i);
                 }
 
                 if (tgt != null) addEdge(g, currBB, tgt, forwardRefs);
@@ -424,12 +418,19 @@ public class CFG {
 
             // 2. Record a mapping from the region's exclusive basic blocks to the first bb that will start exception handling for all their exceptions.
             // 3. Add an exception edge from every exclusive bb of the region to firstRescueBB
+            BasicBlock ensureBlockBB = rr.getEnsureBlockLabel() == null ? null : getBasicBlockOf(rr.getEnsureBlockLabel());
             for (BasicBlock b : rr.getExclusiveBBs()) {
                 bbRescuerMap.put(b, firstRescueBB);
-                if (rr.getEnsureBlockLabel() != null) {
-                    bbEnsurerMap.put(b, getBasicBlockOf(rr.getEnsureBlockLabel()));
-                }
                 g.addEdge(b, firstRescueBB, EdgeType.EXCEPTION);
+                if (ensureBlockBB != null) {
+                    bbEnsurerMap.put(b, ensureBlockBB);
+                    // SSS FIXME: This is a conservative edge because when a rescue block is present
+                    // that catches an exception, control never reaches the ensure block directly.
+                    // Only when we get an error or threadkill even, or when breaks propagate upward
+                    // do we need to hit an ensure directly.  This edge is present to account for that
+                    // control-flow scneario.
+                    g.addEdge(b, ensureBlockBB, EdgeType.EXCEPTION);
+                }
             }
         }
 
@@ -453,7 +454,7 @@ public class CFG {
         for (BasicBlock rb : excBBs) {
             g.addEdge(rb, exitBB, EdgeType.EXIT);
         }
-        if (!bbEndedWithControlXfer) {
+        if (nextBBisFallThrough) {
             g.addEdge(currBB, exitBB, EdgeType.EXIT);
         }
 
