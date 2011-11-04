@@ -6,7 +6,6 @@ import org.jruby.compiler.ir.instructions.ReceiveExceptionInstr;
 import org.jruby.compiler.ir.instructions.StoreToBindingInstr;
 import org.jruby.compiler.ir.instructions.ThrowExceptionInstr;
 import org.jruby.compiler.ir.representations.BasicBlock;
-import org.jruby.compiler.ir.representations.CFG;
 import org.jruby.compiler.ir.dataflow.DataFlowProblem;
 import org.jruby.compiler.ir.dataflow.FlowGraphNode;
 import org.jruby.compiler.ir.operands.Label;
@@ -15,6 +14,7 @@ import org.jruby.compiler.ir.operands.LocalVariable;
 
 import java.util.Set;
 import java.util.HashSet;
+import org.jruby.compiler.ir.representations.CFG;
 
 // This problem tries to find places to insert binding stores -- for spilling local variables onto a heap store
 // It does better than spilling all local variables to the heap at all call sites.  This is similar to a
@@ -44,11 +44,11 @@ public class BindingStorePlacementProblem extends DataFlowProblem {
     }
 
     public boolean scopeDefinesVariable(Variable v) {
-        return getCFG().definesLocalVariable(v);
+        return getScope().cfg().getScope().definesLocalVariable(v);
     }
 
     public boolean scopeUsesVariable(Variable v) {
-        return getCFG().usesLocalVariable(v);
+        return getScope().cfg().getScope().usesLocalVariable(v);
     }
 
     public void addStoreAndBindingAllocInstructions() {
@@ -63,7 +63,7 @@ public class BindingStorePlacementProblem extends DataFlowProblem {
          * -------------------------------------------------------------------- */
         boolean mightRequireGlobalEnsureBlock = false;
         Set<LocalVariable> dirtyVars = null;
-        CFG cfg = getCFG();
+        CFG cfg = getScope().cfg();
         IRScope cfgScope = cfg.getScope();
         if (cfgScope instanceof IRClosure) {
             mightRequireGlobalEnsureBlock = true;

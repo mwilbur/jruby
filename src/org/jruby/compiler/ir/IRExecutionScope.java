@@ -2,7 +2,6 @@ package org.jruby.compiler.ir;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -11,25 +10,39 @@ import java.util.SortedSet;
 import java.util.TreeSet;
 
 import org.jruby.compiler.ir.compiler_pass.CompilerPass;
+import org.jruby.compiler.ir.compiler_pass.DominatorTreeBuilder;
+import org.jruby.compiler.ir.dataflow.DataFlowProblem;
 import org.jruby.compiler.ir.instructions.CallInstr;
 import org.jruby.compiler.ir.instructions.CopyInstr;
 import org.jruby.compiler.ir.instructions.Instr;
 import org.jruby.compiler.ir.instructions.ReceiveClosureInstr;
 import org.jruby.compiler.ir.instructions.SuperInstr;
+import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.LocalVariable;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Self;
-import org.jruby.compiler.ir.operands.MethAddr;
 import org.jruby.compiler.ir.operands.Variable;
+import org.jruby.compiler.ir.representations.BasicBlock;
 import org.jruby.compiler.ir.representations.CFG;
+import org.jruby.compiler.ir.representations.CFGInliner;
+import org.jruby.compiler.ir.representations.CFGLinearizer;
 import org.jruby.parser.StaticScope;
+import org.jruby.util.log.Logger;
+import org.jruby.util.log.LoggerFactory;
 
 /* IRMethod, IRClosure, IREvalScript -- basically scopes that represent execution contexts.
  * This is just an abstraction over methods and closures */
 public abstract class IRExecutionScope extends IRScopeImpl {
+    private static final Logger LOG = LoggerFactory.getLogger("IRExecutionScope");
+    
     private List<Instr>     instructions; // List of IR instructions for this method
-    private CFG             cfg;          // Control flow graph for this scope
+    private CFG cfg = null;
     private List<IRClosure> closures;     // List of (nested) closures in this scope
+    private Set<Variable> definedLocalVars;   // Local variables defined in this scope
+    private Set<Variable> usedLocalVars;      // Local variables used in this scope    
+    private Map<String, DataFlowProblem> dfProbs = new HashMap<String, DataFlowProblem>();       // Map of name -> dataflow problem    
+    private Instr[] instrs = null;
+    List<BasicBlock> linearizedBBList = null;  // Linearized list of bbs
 
     protected static class LocalVariableAllocator {
         public int nextSlot;
@@ -206,8 +219,7 @@ public abstract class IRExecutionScope extends IRScopeImpl {
         cfg.build(instructions);
         return cfg;
     }
-
-    // Get the control flow graph for this scope
+    
     public CFG getCFG() {
         return cfg;
     }
@@ -301,7 +313,7 @@ public abstract class IRExecutionScope extends IRScopeImpl {
             if (end != null) { // Variable is actually used somewhere and not dead
                 if (i > 0) sb.append("\n");
                 i++;
-                sb.append("    " + var + ": " + starts.get(var) + "-" + end);
+                sb.append("    ").append(var).append(": ").append(starts.get(var)).append("-").append(end);
             }
         }
 
@@ -424,5 +436,209 @@ public abstract class IRExecutionScope extends IRScopeImpl {
         // System.out.println("For " + this + ", # lvs: " + nextLocalVariableSlot);
         // %block, # local vars, # flip vars
         return 1 + localVars.nextSlot + getPrefixCountSize("%flip");
+    }
+    
+    public void setUpUseDefLocalVarMaps() {
+        definedLocalVars = new java.util.HashSet<Variable>();
+        usedLocalVars = new java.util.HashSet<Variable>();
+        for (BasicBlock bb : cfg().getBasicBlocks()) {
+            for (Instr i : bb.getInstrs()) {
+                for (Variable v : i.getUsedVariables()) {
+                    if (v instanceof LocalVariable) usedLocalVars.add(v);
+                }
+                Variable v = i.getResult();
+                if ((v != null) && (v instanceof LocalVariable)) definedLocalVars.add(v);
+            }
+        }
+
+        for (IRClosure cl : getClosures()) {
+            cl.setUpUseDefLocalVarMaps();
+        }
+    }
+
+    public boolean usesLocalVariable(Variable v) {
+        if (usedLocalVars == null) setUpUseDefLocalVarMaps();
+        if (usedLocalVars.contains(v)) return true;
+
+        for (IRClosure cl : getClosures()) {
+            if (cl.usesLocalVariable(v)) return true;
+        }
+
+        return false;
+    }
+
+    public boolean definesLocalVariable(Variable v) {
+        if (definedLocalVars == null) setUpUseDefLocalVarMaps();
+        if (definedLocalVars.contains(v)) return true;
+
+        for (IRClosure cl : getClosures()) {
+            if (cl.definesLocalVariable(v)) return true;
+        }
+
+        return false;
+    }    
+    
+    public void setDataFlowSolution(String name, DataFlowProblem p) {
+        dfProbs.put(name, p);
+    }
+
+    public DataFlowProblem getDataFlowSolution(String name) {
+        return dfProbs.get(name);
+    }    
+    
+    public Instr[] prepareInstructionsForInterpretation() {
+        if (instrs != null) return instrs; // Already prepared
+
+        try {
+            buildLinearization(); // FIXME: compiler passes should have done this
+            depends(linearization());
+        } catch (RuntimeException e) {
+            LOG.error("Error linearizing: " + cfg(), e);
+            throw e;
+        }
+
+        // Set up a bb array that maps labels to targets -- just to make sure old code continues to work! 
+        // ENEBO: Currently unused
+        // setupFallThruMap();
+
+        // Set up IPCs
+        HashMap<Label, Integer> labelIPCMap = new HashMap<Label, Integer>();
+        List<Label> labelsToFixup = new ArrayList<Label>();
+        List<Instr> newInstrs = new ArrayList<Instr>();
+        int ipc = 0;
+        for (BasicBlock b : linearizedBBList) {
+            labelIPCMap.put(b.getLabel(), ipc);
+            labelsToFixup.add(b.getLabel());
+            for (Instr i : b.getInstrs()) {
+                newInstrs.add(i);
+                ipc++;
+            }
+        }
+
+        // Fix up labels
+        for (Label l : labelsToFixup) {
+            l.setTargetPC(labelIPCMap.get(l));
+        }
+
+        // Exit BB ipc
+        cfg().getExitBB().getLabel().setTargetPC(ipc + 1);
+
+        instrs = newInstrs.toArray(new Instr[newInstrs.size()]);
+        return instrs;
+    }
+    
+    
+    public List<BasicBlock> buildLinearization() {
+        if (linearizedBBList != null) return linearizedBBList; // Already linearized
+        
+        linearizedBBList = CFGLinearizer.linearize(cfg());
+        
+        return linearizedBBList;
+    }
+    
+    // SSS FIXME: Extremely inefficient
+    public int getRescuerPC(Instr excInstr) {
+        depends(cfg());
+        
+        for (BasicBlock b : linearizedBBList) {
+            for (Instr i : b.getInstrs()) {
+                if (i == excInstr) {
+                    BasicBlock rescuerBB = cfg().getRescuerBBFor(b);
+                    return (rescuerBB == null) ? -1 : rescuerBB.getLabel().getTargetPC();
+                }
+            }
+        }
+
+        // SSS FIXME: Cannot happen! Throw runtime exception
+        LOG.error("Fell through looking for rescuer ipc for " + excInstr);
+        return -1;
+    }
+
+    // SSS FIXME: Extremely inefficient
+    public int getEnsurerPC(Instr excInstr) {
+        depends(cfg());
+        
+        for (BasicBlock b : linearizedBBList) {
+            for (Instr i : b.getInstrs()) {
+                if (i == excInstr) {
+                    BasicBlock ensurerBB = cfg.getEnsurerBBFor(b);
+                    return (ensurerBB == null) ? -1 : ensurerBB.getLabel().getTargetPC();
+                }
+            }
+        }
+
+        // SSS FIXME: Cannot happen! Throw runtime exception
+        LOG.error("Fell through looking for ensurer ipc for " + excInstr);
+        return -1;
+    }
+    
+    public List<BasicBlock> linearization() {
+        depends(cfg());
+        
+        assert linearizedBBList != null: "You have not run linearization";
+        
+        return linearizedBBList;
+    }
+    
+    protected void depends(Object obj) {
+        assert obj != null: "Unsatisfied dependency and this depends() was set " +
+                "up wrong.  Use depends(build()) not depends(build).";
+    }
+    
+    public CFG cfg() {
+        assert cfg != null: "Trying to access build before build started";
+        return cfg;
+    }     
+
+    public void splitCalls() {
+        // FIXME: (Enebo) We are going to make a SplitCallInstr so this logic can be separate
+        // from unsplit calls.  Comment out until new SplitCall is created.
+//        for (BasicBlock b: getNodes()) {
+//            List<Instr> bInstrs = b.getInstrs();
+//            for (ListIterator<Instr> it = ((ArrayList<Instr>)b.getInstrs()).listIterator(); it.hasNext(); ) {
+//                Instr i = it.next();
+//                // Only user calls, not Ruby & JRuby internal calls
+//                if (i.operation == Operation.CALL) {
+//                    CallInstr call = (CallInstr)i;
+//                    Operand   r    = call.getReceiver();
+//                    Operand   m    = call.getMethodAddr();
+//                    Variable  mh   = _scope.getNewTemporaryVariable();
+//                    MethodLookupInstr mli = new MethodLookupInstr(mh, m, r);
+//                    // insert method lookup at the right place
+//                    it.previous();
+//                    it.add(mli);
+//                    it.next();
+//                    // update call address
+//                    call.setMethodAddr(mh);
+//                }
+//            }
+//        }
+//
+//        List<IRClosure> closures = _scope.getClosures();
+//        if (!closures.isEmpty()) {
+//            for (IRClosure c : closures) {
+//                c.getCFG().splitCalls();
+//            }
+//        }
+    }    
+    
+    public void inlineMethod(IRMethod method, BasicBlock basicBlock, CallInstr call) {
+        depends(cfg());
+        
+        new CFGInliner(cfg).inlineMethod(method, basicBlock, call);
+    }
+    
+    
+    public void buildCFG(List<Instr> instructions) {
+        CFG newBuild = new CFG(this);
+        newBuild.build(instructions);
+        cfg = newBuild;
+    }    
+
+    public void buildDominatorTree(DominatorTreeBuilder builder) {
+        depends(cfg());
+
+        // FIXME: Add result from this build and add to CFG as a field, then add depends() for htings which use it.
+        builder.buildDominatorTree(cfg, cfg.postOrderList(), cfg.getMaxNodeID());
     }
 }

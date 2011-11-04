@@ -7,7 +7,7 @@ import java.util.Set;
 /**
  *
  */
-public class Vertex<T extends DataInfo> {
+public class Vertex<T extends DataInfo> implements Comparable<Vertex<T>> {
     private DirectedGraph graph;
     private T data;
     private Set<Edge<T>> incoming = null;
@@ -60,15 +60,67 @@ public class Vertex<T extends DataInfo> {
     public Iterable<Edge<T>> getIncomingEdgesOfType(Object type) {
         return new EdgeTypeIterable<T>(getIncomingEdges(), type);
     }
+
+    public Iterable<Edge<T>> getIncomingEdgesNotOfType(Object type) {
+        return new EdgeTypeIterable<T>(getIncomingEdges(), type, true);
+    }
     
     public Iterable<Edge<T>> getOutgoingEdgesOfType(Object type) {
         return new EdgeTypeIterable<T>(getOutgoingEdges(), type);
     }
+
+    public T getIncomingSourceData() {
+        Edge<T> edge = getSingleEdge(getIncomingEdges().iterator(), "");
+        
+        return edge == null ? null : edge.getSource().getData();  
+    }    
     
+    public T getIncomingSourceDataOfType(Object type) {
+        Edge<T> edge = getSingleEdge(getIncomingEdgesOfType(type).iterator(), type);
+        
+        return edge == null ? null : edge.getSource().getData();
+    }    
+    
+    public Iterable<T> getIncomingSourcesData() {
+        return new DataIterable<T>(getIncomingEdges(), null, true);
+    }
+    
+    public Iterable<T> getIncomingSourcesDataOfType(Object type) {
+        return new DataIterable<T>(getIncomingEdges(), type, false);
+    }      
+    
+    public Iterable<T> getIncomingSourcesDataNotOfType(Object type) {
+        return new DataIterable<T>(getIncomingEdges(), type, true);
+    }      
+        
     public Iterable<Edge<T>> getOutgoingEdgesNotOfType(Object type) {
         return new EdgeTypeIterable<T>(getOutgoingEdges(), type, true);
     }
+    
+    public Iterable<T> getOutgoingDestinationsData() {
+        return new DataIterable<T>(getOutgoingEdges(), null, true);
+    }
 
+    public Iterable<T> getOutgoingDestinationsDataOfType(Object type) {
+        return new DataIterable<T>(getOutgoingEdges(), type, false);
+    }
+    
+    public Iterable<T> getOutgoingDestinationsDataNotOfType(Object type) {
+        return new DataIterable<T>(getOutgoingEdges(), type, true);
+    }
+
+    public T getOutgoingDestinationData() {
+        Edge<T> edge = getSingleEdge(getOutgoingEdges().iterator(), "");
+        
+        return edge == null ? null : edge.getSource().getData();  
+    }    
+    
+    public T getOutgoingDestinationDataOfType(Object type) {
+        Edge<T> edge = getSingleEdge(getOutgoingEdgesOfType(type).iterator(), type);
+        
+        return edge == null ? null : edge.getDestination().getData();
+    }
+    
     private Edge<T> getSingleEdge(Iterator<Edge<T>> iterator, Object type) {
         if (iterator.hasNext()) {
             Edge<T> edge = iterator.next();
@@ -87,6 +139,22 @@ public class Vertex<T extends DataInfo> {
 
     public Edge<T> getOutgoingEdgeOfType(Object type) {
         return getSingleEdge(getOutgoingEdgesOfType(type).iterator(), type);
+    }
+    
+    /**
+     * Get single incoming edge of any type and assert if there is more than
+     * one.
+     */
+    public Edge<T> getIncomingEdge() {
+        return getSingleEdge(getIncomingEdgesNotOfType(null).iterator(), null);
+    }
+    
+    /**
+     * Get single outgoing edge of any type and assert if there is more than
+     * one.
+     */
+    public Edge<T> getOutgoingEdge() {
+        return getSingleEdge(getOutgoingEdgesNotOfType(null).iterator(), null);
     }
 
     public Set<Edge<T>> getIncomingEdges() {
@@ -142,5 +210,11 @@ public class Vertex<T extends DataInfo> {
         buf.append("\n");
         
         return buf.toString();
+    }
+
+    public int compareTo(Vertex<T> that) {
+        if (this.getData().getID() == that.getData().getID()) return 0;
+        if (this.getData().getID() < that.getData().getID()) return -1;
+        return 1;
     }
 }

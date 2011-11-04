@@ -1,6 +1,8 @@
 package org.jruby.compiler.ir.util;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -63,13 +65,20 @@ public class DirectedGraph<T extends DataInfo> {
         vertices.remove(data);
         vertex.removeAllEdges();
     }
+    
+    public int size() {
+        return allData().size();
+    }
 
     @Override
     public String toString() {
         StringBuilder buf = new StringBuilder();
         
-        for (T block: allData()) {
-            buf.append(vertexFor(block));
+        
+        ArrayList<Vertex<T>> verts = new ArrayList<Vertex<T>>(vertices.values());
+        Collections.sort(verts);
+        for (Vertex<T> vertex: verts) {
+            buf.append(vertex);
         }
         
         return buf.toString();

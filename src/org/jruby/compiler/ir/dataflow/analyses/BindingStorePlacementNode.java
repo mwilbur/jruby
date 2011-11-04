@@ -18,12 +18,10 @@ import org.jruby.compiler.ir.operands.ClosureLocalVariable;
 import org.jruby.compiler.ir.operands.LocalVariable;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.BasicBlock;
-import org.jruby.compiler.ir.representations.CFG;
 
 import java.util.Set;
 import java.util.HashSet;
 import java.util.ListIterator;
-import org.jruby.compiler.ir.util.Edge;
 
 public class BindingStorePlacementNode extends FlowGraphNode {
     public BindingStorePlacementNode(DataFlowProblem prob, BasicBlock n) {
@@ -37,7 +35,7 @@ public class BindingStorePlacementNode extends FlowGraphNode {
 
         // For closure scopes, the heap binding will already have been allocated in the parent scope
         // So, don't even bother with the binding allocation in closures!
-        if (problem.getCFG().getScope() instanceof IRClosure) {
+        if (problem.getScope().cfg().getScope() instanceof IRClosure) {
             inBindingAllocated = outBindingAllocated = true;
         } else {
             inBindingAllocated = outBindingAllocated = false;
@@ -53,7 +51,7 @@ public class BindingStorePlacementNode extends FlowGraphNode {
         // Nothing to do
     }
 
-    public void compute_MEET(Edge edge, FlowGraphNode pred) {
+    public void compute_MEET(BasicBlock source, FlowGraphNode pred) {
         BindingStorePlacementNode n = (BindingStorePlacementNode) pred;
         inDirtyVars.addAll(n.outDirtyVars);
 
@@ -80,11 +78,10 @@ public class BindingStorePlacementNode extends FlowGraphNode {
                     bindingAllocated = true;
 
                     IRClosure cl = (IRClosure) ((MetaObject) o).scope;
-                    CFG cl_cfg = cl.getCFG();
                     BindingStorePlacementProblem cl_bsp = new BindingStorePlacementProblem();
-                    cl_bsp.setup(cl_cfg);
+                    cl_bsp.setup(cl);
                     cl_bsp.compute_MOP_Solution();
-                    cl_cfg.setDataFlowSolution(cl_bsp.getName(), cl_bsp);
+                    cl.setDataFlowSolution(cl_bsp.getName(), cl_bsp);
 
                     // If the call is an eval, or if the callee can capture this method's binding, we have to spill all variables.
                     boolean spillAllVars = call.canBeEval() || call.targetRequiresCallersBinding();
@@ -134,8 +131,7 @@ public class BindingStorePlacementNode extends FlowGraphNode {
         boolean addAllocateBindingInstructions = false; // SSS: This is going to be useful during JIT -- we are far away from there at this time
 
         BindingStorePlacementProblem bsp = (BindingStorePlacementProblem) problem;
-        CFG cfg = bsp.getCFG();
-        IRExecutionScope s = cfg.getScope();
+        IRExecutionScope s = bsp.getScope();
         ListIterator<Instr> instrs = basicBlock.getInstrs().listIterator();
         Set<LocalVariable> dirtyVars = new HashSet<LocalVariable>(inDirtyVars);
         boolean bindingAllocated = inBindingAllocated;
@@ -148,7 +144,7 @@ public class BindingStorePlacementNode extends FlowGraphNode {
         //         Ex: s=0; a.each { |i| j = i+1; sum += j; }; puts sum
         //       i,j are dirty inside the block, but not used outside
 
-        boolean amExitBB = basicBlock == cfg.getExitBB();
+        boolean amExitBB = basicBlock == s.cfg().getExitBB();
         if (amExitBB) {
 /**
             LiveVariablesProblem lvp = (LiveVariablesProblem)cfg.getDataFlowSolution(DataFlowConstants.LVP_NAME);
@@ -159,7 +155,7 @@ public class BindingStorePlacementNode extends FlowGraphNode {
             liveVars = lvp.getVarsLiveOnExit();
             System.out.println("\t--> Vars live on exit : " + (liveVars == null ? "NONE" : java.util.Arrays.toString(liveVars.toArray())));
 **/
-            LiveVariablesProblem lvp = (LiveVariablesProblem)cfg.getDataFlowSolution(DataFlowConstants.LVP_NAME);
+            LiveVariablesProblem lvp = (LiveVariablesProblem)s.getDataFlowSolution(DataFlowConstants.LVP_NAME);
             if (lvp != null) {
                 java.util.Collection<Variable> liveVars = lvp.getVarsLiveOnExit();
                 if (liveVars != null) {
@@ -178,8 +174,9 @@ public class BindingStorePlacementNode extends FlowGraphNode {
                 CallInstr call = (CallInstr) i;
                 Operand o = call.getClosureArg();
                 if ((o != null) && (o instanceof MetaObject)) {
-                    CFG cl_cfg = ((IRClosure) ((MetaObject) o).scope).getCFG();
-                    BindingStorePlacementProblem cl_bsp = (BindingStorePlacementProblem) cl_cfg.getDataFlowSolution(bsp.getName());
+                    IRClosure scope = (IRClosure) ((MetaObject) o).scope;
+
+                    BindingStorePlacementProblem cl_bsp = (BindingStorePlacementProblem) scope.getDataFlowSolution(bsp.getName());
 
                     instrs.previous();
                     if (addAllocateBindingInstructions) {
@@ -211,7 +208,7 @@ public class BindingStorePlacementNode extends FlowGraphNode {
                     instrs.next();
 
                     // add stores in the closure
-                    ((BindingStorePlacementProblem) cl_cfg.getDataFlowSolution(bsp.getName())).addStoreAndBindingAllocInstructions();
+                    ((BindingStorePlacementProblem) scope.getDataFlowSolution(bsp.getName())).addStoreAndBindingAllocInstructions();
                 } else if (call.targetRequiresCallersBinding()) { // Call has no closure && it requires stores
                     instrs.previous();
                     if (addAllocateBindingInstructions) {
@@ -259,7 +256,7 @@ public class BindingStorePlacementNode extends FlowGraphNode {
                     liveVars = lvp.getVarsLiveOnExit();
                     System.out.println("\t--> Vars live on exit : " + (liveVars == null ? "NONE" : java.util.Arrays.toString(liveVars.toArray())));
 **/
-                    LiveVariablesProblem lvp = (LiveVariablesProblem)cfg.getDataFlowSolution(DataFlowConstants.LVP_NAME);
+                    LiveVariablesProblem lvp = (LiveVariablesProblem)s.getDataFlowSolution(DataFlowConstants.LVP_NAME);
                     if (lvp != null) {
                         java.util.Collection<Variable> liveVars = lvp.getVarsLiveOnExit();
                         if (liveVars != null) {

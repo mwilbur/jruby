@@ -44,11 +44,11 @@ public class BindingLoadPlacementProblem extends DataFlowProblem {
     }
 
     public boolean scopeDefinesVariable(LocalVariable v) { 
-        return getCFG().definesLocalVariable(v);
+        return getScope().definesLocalVariable(v);
     }
 
     public boolean scopeUsesVariable(LocalVariable v) { 
-        return getCFG().usesLocalVariable(v);
+        return getScope().usesLocalVariable(v);
     }
 
     public void addLoads() {
