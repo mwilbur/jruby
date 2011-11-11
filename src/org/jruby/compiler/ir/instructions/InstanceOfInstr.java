@@ -1,5 +1,7 @@
 package org.jruby.compiler.ir.instructions;
 
+import java.util.Map;
+import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Variable;
@@ -9,30 +11,46 @@ import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
-// SSS FIXME: Have to find a clean solution to this hackiness of having
-// one or more non-Operand fields  in instructions or maybe rename the
-// base classes to something more appropriate?
-public class InstanceOfInstr extends OneOperandInstr {
+public class InstanceOfInstr extends Instr implements ResultInstr {
     private Class type;
     private String className;
+    private Operand object;
+    private final Variable result;
 
-    public InstanceOfInstr(Variable dst, Operand v, String className) {
-        super(Operation.INSTANCE_OF, dst, v);
+    public InstanceOfInstr(Variable result, Operand object, String className) {
+        super(Operation.INSTANCE_OF);
+
+        assert result != null : "InstanceOfInstr result is null";
         
+        this.object = object;
         this.className = className;
+        this.result = result;
     }
 
     public Instr cloneForInlining(InlinerInfo ii) {
-        return new InstanceOfInstr(ii.getRenamedVariable(getResult()), getArg().cloneForInlining(ii), className);
+        return new InstanceOfInstr(ii.getRenamedVariable(result), object.cloneForInlining(ii), className);
+    }
+
+    public Operand[] getOperands() {
+        return new Operand[]{object};
+    }
+
+    public Variable getResult() {
+        return result;
+    }
+    
+    @Override
+    public void simplifyOperands(Map<Operand, Operand> valueMap) {
+        object = object.getSimplifiedOperand(valueMap);
     }
 
     @Override 
     public String toString() {
-        return (isDead() ? "[DEAD]" : "") + (getResult() + " = ") + getOperation() + "(" + getArg() + ", " + className + ")";
+        return (isDead() ? "[DEAD]" : "") + (result + " = ") + getOperation() + "(" + object + ", " + className + ")";
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, ThreadContext context, IRubyObject self) {
+    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
         try {
             if (type == null) type = Class.forName(className);
         } catch (ClassNotFoundException e) {
@@ -43,8 +61,8 @@ public class InstanceOfInstr extends OneOperandInstr {
             // for user ruby code, this may no longer be true and we have to appropriately fix this code then.
             throw new RuntimeException(e);
         }
-        getResult().store(interp, context, self, 
-                context.getRuntime().newBoolean(type.isInstance(getArg().retrieve(interp, context, self)))); 
+        result.store(interp, context, self, 
+                context.getRuntime().newBoolean(type.isInstance(object.retrieve(interp, context, self)))); 
         return null;
     }
 }

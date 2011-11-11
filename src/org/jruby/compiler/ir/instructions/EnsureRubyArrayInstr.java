@@ -13,28 +13,55 @@ import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.ast.util.ArgsUtil;
 import org.jruby.RubyArray;
+import org.jruby.compiler.ir.IRExecutionScope;
 
-public class EnsureRubyArrayInstr extends OneOperandInstr {
-    public EnsureRubyArrayInstr(Variable d, Operand s) {
-        super(Operation.ENSURE_RUBY_ARRAY, d, s);
+public class EnsureRubyArrayInstr extends Instr implements ResultInstr {
+    private Operand object;
+    private final Variable result;
+
+    public EnsureRubyArrayInstr(Variable result, Operand s) {
+        super(Operation.ENSURE_RUBY_ARRAY);
+        
+        assert result != null : "EnsureRubyArray result is null";
+        
+        this.object = s;
+        this.result = result;
     }
 
     @Override
     public Operand simplifyAndGetResult(Map<Operand, Operand> valueMap) {
         simplifyOperands(valueMap);
-        return (getArg() instanceof Array) ? getArg() : null;
+        return (object instanceof Array) ? object : null;
+    }
+
+    public Operand[] getOperands() {
+        return new Operand[]{object};
+    }
+    
+    public Variable getResult() {
+        return result;
+    }
+    
+    @Override
+    public void simplifyOperands(Map<Operand, Operand> valueMap) {
+        object = object.getSimplifiedOperand(valueMap);
+    }
+
+    @Override
+    public String toString() {
+        return super.toString() + "(" + object + ")";
     }
 
     @Override
     public Instr cloneForInlining(InlinerInfo ii) {
-        return new EnsureRubyArrayInstr(ii.getRenamedVariable(getResult()), argument.cloneForInlining(ii));
+        return new EnsureRubyArrayInstr(ii.getRenamedVariable(result), object.cloneForInlining(ii));
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, ThreadContext context, IRubyObject self) {
-        IRubyObject val = (IRubyObject)getArg().retrieve(interp, context, self);
+    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+        IRubyObject val = (IRubyObject)object.retrieve(interp, context, self);
         if (!(val instanceof RubyArray)) val = ArgsUtil.convertToRubyArray(context.getRuntime(), val, false);
-        getResult().store(interp, context, self, val);
+        result.store(interp, context, self, val);
         return null;
     }
 }

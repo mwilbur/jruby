@@ -15,6 +15,7 @@ import org.jruby.compiler.ir.operands.TemporaryClosureVariable;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.instructions.Instr;
 import org.jruby.compiler.ir.instructions.ReceiveClosureArgInstr;
+import org.jruby.compiler.ir.representations.CFG;
 import org.jruby.parser.StaticScope;
 import org.jruby.parser.IRStaticScope;
 import org.jruby.parser.IRStaticScopeFactory;
@@ -108,7 +109,10 @@ public class IRClosure extends IRExecutionScope {
     @Override
     public void addInstr(Instr i) {
         // Accumulate block arguments
-        if (i instanceof ReceiveClosureArgInstr) blockArgs.add(((ReceiveClosureArgInstr) i).isRestOfArgArray() ? new Splat(i.getResult()) : i.getResult());
+        if (i instanceof ReceiveClosureArgInstr) {
+            ReceiveClosureArgInstr recv = (ReceiveClosureArgInstr) i;
+            blockArgs.add(recv.isRestOfArgArray() ? new Splat(recv.getResult()) : recv.getResult());
+        }
 
         super.addInstr(i);
     }
@@ -121,8 +125,9 @@ public class IRClosure extends IRExecutionScope {
         StringBuilder buf = new StringBuilder();
         buf.append(getName()).append(" = { \n");
 
-        if (getCFG() != null) {
-            buf.append("\nCFG:\n").append(getCFG());
+        CFG c = getCFG();
+        if (c != null) {
+            buf.append("\nCFG:\n").append(c.toStringGraph()).append("\nInstructions:\n").append(c.toStringInstrs());
         } else {
             buf.append(toStringInstrs());
         }

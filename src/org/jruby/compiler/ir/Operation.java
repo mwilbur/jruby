@@ -44,6 +44,7 @@ public enum Operation {
     RECV_CLOSURE_ARG(OpFlags.f_is_arg_receive),
     RECV_EXCEPTION(OpFlags.f_is_arg_receive),
     SET_ARGS(OpFlags.f_has_side_effect),
+    RESTORE_ARGS(OpFlags.f_has_side_effect),
 
     /* By default, call instructions cannot be deleted even if their results
      * aren't used by anyone unless we know more about what the call is, 
@@ -52,7 +53,6 @@ public enum Operation {
     /** calls **/
     CALL(OpFlags.f_has_side_effect | OpFlags.f_is_call | OpFlags.f_can_raise_exception),
     JRUBY_IMPL(OpFlags.f_has_side_effect | OpFlags.f_is_call | OpFlags.f_can_raise_exception),
-    RUBY_INTERNALS(OpFlags.f_has_side_effect | OpFlags.f_is_call | OpFlags.f_can_raise_exception),
     SUPER(OpFlags.f_has_side_effect | OpFlags.f_is_call | OpFlags.f_can_raise_exception),
     YIELD(OpFlags.f_has_side_effect | OpFlags.f_can_raise_exception),
 
@@ -66,11 +66,14 @@ public enum Operation {
     BREAK(OpFlags.f_has_side_effect | OpFlags.f_is_return),
 
     /** defines **/
+    ALIAS(OpFlags.f_has_side_effect | OpFlags.f_can_raise_exception),    
+    GVAR_ALIAS(OpFlags.f_has_side_effect | OpFlags.f_can_raise_exception),    
     DEF_MODULE(OpFlags.f_has_side_effect),
     DEF_CLASS(OpFlags.f_has_side_effect),
     DEF_META_CLASS(OpFlags.f_has_side_effect),
     DEF_INST_METH(OpFlags.f_has_side_effect),
     DEF_CLASS_METH(OpFlags.f_has_side_effect),
+    UNDEF_METHOD(OpFlags.f_has_side_effect | OpFlags.f_can_raise_exception),    
 
     THROW(OpFlags.f_has_side_effect | OpFlags.f_can_raise_exception | OpFlags.f_is_exception),
 
@@ -102,11 +105,21 @@ public enum Operation {
     BINDING_STORE(OpFlags.f_is_store | OpFlags.f_has_side_effect), 
     ATTR_ASSIGN(OpFlags.f_is_store | OpFlags.f_has_side_effect | OpFlags.f_can_raise_exception),
     
+    /* defined */
+    SET_WITHIN_DEFINED(0),
+    
     /** JRuby-impl instructions **/
     BLOCK_GIVEN(0),
+    RESTORE_ERROR_INFO(0),
+    RAISE_ARGUMENT_ERROR(OpFlags.f_can_raise_exception),
     CHECK_ARITY(OpFlags.f_can_raise_exception),
+    RECORD_END_BLOCK(OpFlags.f_has_side_effect),
+    TO_ARY(OpFlags.f_has_side_effect | OpFlags.f_is_call | OpFlags.f_can_raise_exception),
 
     /** rest **/
+    MATCH(OpFlags.f_can_raise_exception),
+    MATCH2(OpFlags.f_can_raise_exception),
+    MATCH3(OpFlags.f_can_raise_exception | OpFlags.f_is_call),
     COPY(0),
     NOT(0), // ruby NOT operator
     SET_RETADDR(0),

@@ -25,7 +25,7 @@ import org.jruby.compiler.ir.instructions.LabelInstr;
 import org.jruby.compiler.ir.instructions.SetReturnAddressInstr;
 import org.jruby.compiler.ir.instructions.ThrowExceptionInstr;
 import org.jruby.compiler.ir.operands.Label;
-import org.jruby.compiler.ir.operands.MetaObject;
+import org.jruby.compiler.ir.operands.WrappedIRClosure;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.util.DirectedGraph;
@@ -128,6 +128,10 @@ public class CFG {
     
     public Collection<BasicBlock> getBasicBlocks() {
         return graph.allData();
+    }
+    
+    public Collection<BasicBlock> getSortedBasicBlocks() {
+        return graph.getSortedData();
     }
     
     public Iterable<BasicBlock> getIncomingSources(BasicBlock block) {
@@ -329,7 +333,7 @@ public class CFG {
             }
 
             if (i instanceof SetReturnAddressInstr) {
-                Variable v = i.getResult();
+                Variable v = ((SetReturnAddressInstr) i).getResult();
                 Label tgtLbl = ((SetReturnAddressInstr) i).getReturnAddr();
                 BasicBlock tgtBB = retAddrTargetMap.get(v);
                 // If we have the target bb, add the edge
@@ -346,8 +350,8 @@ public class CFG {
                 }
             } else if (i instanceof CallInstr) { // Build CFG for the closure if there exists one
                 Operand closureArg = ((CallInstr) i).getClosureArg();
-                if (closureArg instanceof MetaObject) {
-                    ((IRClosure) ((MetaObject) closureArg).scope).buildCFG();
+                if (closureArg instanceof WrappedIRClosure) {
+                    ((WrappedIRClosure) closureArg).getClosure().buildCFG();
                 }
             }
         }
@@ -514,12 +518,15 @@ public class CFG {
 
         deleteOrphanedBlocks(graph);
     }
+
+    public String toStringGraph() {
+        return graph.toString();
+    }
     
     public String toStringInstrs() {
         StringBuilder buf = new StringBuilder();
-
         
-        for (BasicBlock b : getBasicBlocks()) {
+        for (BasicBlock b : getSortedBasicBlocks()) {
             buf.append(b.toStringInstrs());
         }
         buf.append("\n\n------ Rescue block map ------\n");

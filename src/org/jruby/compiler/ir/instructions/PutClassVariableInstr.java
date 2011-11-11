@@ -1,9 +1,10 @@
 package org.jruby.compiler.ir.instructions;
 
 import org.jruby.RubyModule;
+import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.Label;
-import org.jruby.compiler.ir.operands.MetaObject;
+import org.jruby.compiler.ir.operands.WrappedIRModule;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.interpreter.InterpreterContext;
@@ -21,16 +22,14 @@ public class PutClassVariableInstr extends PutInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, ThreadContext context, IRubyObject self) {
+    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
         IRubyObject value = (IRubyObject) getValue().retrieve(interp, context, self);
         RubyModule module = (RubyModule) getTarget().retrieve(interp, context, self);
 
         assert module != null : "MODULE should always be something";
 
         // Modules and classes set this constant as a side-effect
-        if (!(getValue() instanceof MetaObject && ((MetaObject) getValue()).isModule())) {
-            module.setClassVar(getName(), value);
-        }
+        if (!(getValue() instanceof WrappedIRModule)) module.setClassVar(getRef(), value);
         return null;
     }
 }

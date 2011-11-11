@@ -1,5 +1,7 @@
 package org.jruby.compiler.ir.instructions;
 
+import java.util.Map;
+import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.MethodHandle;
@@ -10,26 +12,52 @@ import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
-public class MethodLookupInstr extends OneOperandInstr {
-    public MethodLookupInstr(Variable dest, MethodHandle mh) {
-        super(Operation.METHOD_LOOKUP, dest, mh);
+public class MethodLookupInstr extends Instr implements ResultInstr {
+    private Operand methodHandle;
+    private final Variable result;
+
+    public MethodLookupInstr(Variable result, MethodHandle mh) {
+        super(Operation.METHOD_LOOKUP);
+        
+        assert result != null: "MethodLookupInstr result is null";
+        
+        this.methodHandle = mh;
+        this.result = result;
     }
 
     public MethodLookupInstr(Variable dest, Operand methodName, Operand receiver) {
-        super(Operation.METHOD_LOOKUP, dest, new MethodHandle(methodName, receiver));
+        this(dest, new MethodHandle(methodName, receiver));
     }
 
     public MethodHandle getMethodHandle() {
-        return (MethodHandle)getArg();
+        return (MethodHandle)methodHandle;
     }
 
-    public Instr cloneForInlining(InlinerInfo ii) {
-        return new MethodLookupInstr(ii.getRenamedVariable(getResult()), (MethodHandle)getArg().cloneForInlining(ii));
+    public Operand[] getOperands() {
+        return new Operand[]{methodHandle};
+    }
+    
+    public Variable getResult() {
+        return result;
+    }
+    
+    @Override
+    public void simplifyOperands(Map<Operand, Operand> valueMap) {
+        methodHandle = methodHandle.getSimplifiedOperand(valueMap);
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, ThreadContext context, IRubyObject self) {
-        getResult().store(interp, context, self, getMethodHandle().retrieve(interp, context, self));
+    public String toString() {
+        return super.toString() + "(" + methodHandle + ")";
+    }
+
+    public Instr cloneForInlining(InlinerInfo ii) {
+        return new MethodLookupInstr(ii.getRenamedVariable(result), (MethodHandle)methodHandle.cloneForInlining(ii));
+    }
+
+    @Override
+    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+        result.store(interp, context, self, methodHandle.retrieve(interp, context, self));
         return null;
     }
 }
