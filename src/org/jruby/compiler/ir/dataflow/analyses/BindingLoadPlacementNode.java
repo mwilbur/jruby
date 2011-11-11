@@ -9,7 +9,7 @@ import org.jruby.compiler.ir.instructions.Instr;
 import org.jruby.compiler.ir.instructions.CallInstr;
 import org.jruby.compiler.ir.instructions.LoadFromBindingInstr;
 import org.jruby.compiler.ir.operands.Operand;
-import org.jruby.compiler.ir.operands.MetaObject;
+import org.jruby.compiler.ir.operands.WrappedIRClosure;
 import org.jruby.compiler.ir.operands.ClosureLocalVariable;
 import org.jruby.compiler.ir.operands.LocalVariable;
 import org.jruby.compiler.ir.operands.Variable;
@@ -19,6 +19,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Set;
+import org.jruby.compiler.ir.instructions.ResultInstr;
 
 public class BindingLoadPlacementNode extends FlowGraphNode {
     public BindingLoadPlacementNode(DataFlowProblem prob, BasicBlock n) {
@@ -61,16 +62,14 @@ public class BindingLoadPlacementNode extends FlowGraphNode {
             if (i.getOperation() == Operation.BINDING_STORE) continue;
 
             // Right away, clear the variable defined by this instruction -- it doesn't have to be loaded!
-            Variable r = i.getResult();
-
-            if (r != null) reqdLoads.remove(r);
+            if (i instanceof ResultInstr) reqdLoads.remove(((ResultInstr) i).getResult());
 
             // Process calls specially -- these are the sites of binding loads!
             if (i instanceof CallInstr) {
                 CallInstr call = (CallInstr) i;
                 Operand o = call.getClosureArg();
-                if ((o != null) && (o instanceof MetaObject)) {
-                    IRClosure cl = (IRClosure) ((MetaObject) o).scope;
+                if ((o != null) && (o instanceof WrappedIRClosure)) {
+                    IRClosure cl = ((WrappedIRClosure) o).getClosure();
                     BindingLoadPlacementProblem cl_blp = new BindingLoadPlacementProblem();
                     cl_blp.initLoadsOnScopeExit(reqdLoads);
                     cl_blp.setup(cl);
@@ -134,15 +133,13 @@ public class BindingLoadPlacementNode extends FlowGraphNode {
             if (i.getOperation() == Operation.BINDING_STORE) continue;
 
             // Right away, clear the variable defined by this instruction -- it doesn't have to be loaded!
-            Variable r = i.getResult();
-
-            if (r != null) reqdLoads.remove(r);
+            if (i instanceof ResultInstr) reqdLoads.remove(((ResultInstr) i).getResult());
 
             if (i instanceof CallInstr) {
                 CallInstr call = (CallInstr) i;
                 Operand o = call.getClosureArg();
-                if ((o != null) && (o instanceof MetaObject)) {
-                    IRClosure scope = (IRClosure) ((MetaObject) o).scope;
+                if ((o != null) && (o instanceof WrappedIRClosure)) {
+                    IRClosure scope = ((WrappedIRClosure) o).getClosure();
                     BindingLoadPlacementProblem cl_blp = (BindingLoadPlacementProblem) scope.getDataFlowSolution(blp.getName());
 
                     // Only those variables that are defined in the closure, and are in the required loads set 

@@ -7,11 +7,12 @@ package org.jruby.compiler.ir.instructions;
 
 import java.util.Map;
 import org.jruby.RubyModule;
+import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.IRModule;
 import org.jruby.compiler.ir.IRScope;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.Label;
-import org.jruby.compiler.ir.operands.MetaObject;
+import org.jruby.compiler.ir.operands.WrappedIRClosure;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
@@ -30,15 +31,15 @@ public class GetConstInstr extends GetInstr {
     }
 
     public Instr cloneForInlining(InlinerInfo ii) {
-        return new GetConstInstr(ii.getRenamedVariable(getResult()), getSource().cloneForInlining(ii), getName());
+        return new GetConstInstr(ii.getRenamedVariable(getResult()), getSource().cloneForInlining(ii), getRef());
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, ThreadContext context, IRubyObject self) {
+    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
         Object source = getSource().retrieve(interp, context, self);
         RubyModule module;
 
-        // Retrieving a MetaObject which is a closure returns a closure and not
+        // Retrieving a WrappedIRClosure which is a closure returns a closure and not
         // the module which contains it.  We could possible add to operand to have a generic
         // scope() method or resort to if statements :)  So let's figure more out before
         // fixing this.
@@ -50,8 +51,8 @@ public class GetConstInstr extends GetInstr {
             throw context.getRuntime().newTypeError(source + " is not a type/class");
         }
 
-        Object constant = module.getConstant(getName());
-        if (constant == null) constant = module.getConstantFromConstMissing(getName());
+        Object constant = module.getConstant(getRef());
+        if (constant == null) constant = module.getConstantFromConstMissing(getRef());
 
         //if (container == null) throw runtime.newNameError("unitialized constant " + scope.getName(), scope.getName());
         getResult().store(interp, context, self, constant);

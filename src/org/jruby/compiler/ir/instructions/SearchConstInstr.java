@@ -1,10 +1,8 @@
 package org.jruby.compiler.ir.instructions;
 
-import org.jruby.compiler.ir.IRScope;
 import org.jruby.compiler.ir.IRModule;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.Label;
-import org.jruby.compiler.ir.operands.MetaObject;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.UndefinedValue;
 import org.jruby.compiler.ir.operands.Variable;
@@ -14,6 +12,7 @@ import org.jruby.Ruby;
 import org.jruby.runtime.ThreadContext;
 
 import org.jruby.RubyModule;
+import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.interpreter.InterpreterContext;
 import org.jruby.parser.StaticScope;
 import org.jruby.runtime.builtin.IRubyObject;
@@ -23,22 +22,31 @@ import org.jruby.runtime.builtin.IRubyObject;
 // on the meta-object.  In the case of method & closures, the runtime method will delegate
 // this call to the parent scope.
 
-public class SearchConstInstr extends Instr {
+public class SearchConstInstr extends Instr implements ResultInstr {
     IRModule definingModule;
     String constName;
+    private final Variable result;
 
-    public SearchConstInstr(Variable dest, IRModule definingModule, String constName) {
-        super(Operation.SEARCH_CONST, dest);
+    public SearchConstInstr(Variable result, IRModule definingModule, String constName) {
+        super(Operation.SEARCH_CONST);
+        
+        assert result != null: "SearchConstInstr result is null";
+        
         this.definingModule = definingModule;
         this.constName = constName;
+        this.result = result;
     }
 
     public Operand[] getOperands() { 
         return new Operand[] {};
     }
+    
+    public Variable getResult() {
+        return result;
+    }
 
     public Instr cloneForInlining(InlinerInfo ii) {
-        return new SearchConstInstr(ii.getRenamedVariable(getResult()), definingModule, constName);
+        return new SearchConstInstr(ii.getRenamedVariable(result), definingModule, constName);
     }
 
     @Override
@@ -47,7 +55,7 @@ public class SearchConstInstr extends Instr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, ThreadContext context, IRubyObject self) {
+    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
         StaticScope staticScope = definingModule == null ? context.getCurrentScope().getStaticScope() : definingModule.getStaticScope();
         Ruby runtime = context.getRuntime();
         RubyModule object = runtime.getObject();
@@ -61,7 +69,7 @@ public class SearchConstInstr extends Instr {
 
         if (constant == null) constant = UndefinedValue.UNDEFINED;
         
-        getResult().store(interp, context, self, constant);
+        result.store(interp, context, self, constant);
 
         return null;
     }

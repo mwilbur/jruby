@@ -7,7 +7,7 @@ import org.jruby.compiler.ir.dataflow.FlowGraphNode;
 import org.jruby.compiler.ir.instructions.CallInstr;
 import org.jruby.compiler.ir.instructions.Instr;
 import org.jruby.compiler.ir.operands.Operand;
-import org.jruby.compiler.ir.operands.MetaObject;
+import org.jruby.compiler.ir.operands.WrappedIRClosure;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.BasicBlock;
 
@@ -17,12 +17,13 @@ import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.ListIterator;
+import org.jruby.compiler.ir.instructions.ResultInstr;
 
 public class LiveVariableNode extends FlowGraphNode {
     public LiveVariableNode(DataFlowProblem prob, BasicBlock n) {
         super(prob, n);
     }
-
+    
     @Override
     public void init() {
         setSize = problem.getDFVarsCount();
@@ -30,16 +31,15 @@ public class LiveVariableNode extends FlowGraphNode {
     }
 
     private void addDFVar(Variable v) {
-        LiveVariablesProblem lvp = (LiveVariablesProblem)problem;
-        if ((v != null) && (lvp.getDFVar(v) == null)) {
-            lvp.addDFVar(v);
+        LiveVariablesProblem lvp = (LiveVariablesProblem) problem;
+        if (!lvp.dfVarExists(v)) lvp.addDFVar(v);
 //            System.out.println("Adding df var for " + v + ":" + lvp.getDFVar(v)._id);
-        }
     }
 
     public void buildDataFlowVars(Instr i) {
-//        System.out.println("BV: Processing: " + i);
-        addDFVar(i.getResult());
+//        System.out.println("BV: Processing: " + i);        
+        if (i instanceof ResultInstr) addDFVar(((ResultInstr) i).getResult());
+
         for (Variable x: i.getUsedVariables()) {
             addDFVar(x);
         }
@@ -52,7 +52,7 @@ public class LiveVariableNode extends FlowGraphNode {
         
         if (basicBlock == p.getScope().cfg().getExitBB()) {
             Collection<Variable> lv = p.getVarsLiveOnExit();
-            if ((lv != null) && !lv.isEmpty()) {
+            if (!lv.isEmpty()) {
                 for (Variable v: lv) {
                     in.set(p.getDFVar(v).getId());
                 }
@@ -91,10 +91,8 @@ public class LiveVariableNode extends FlowGraphNode {
 //            System.out.println("TF: Processing: " + i);
 
             // v is defined => It is no longer live before 'i'
-            Variable v = i.getResult();
-            if (v != null) {
-                DataFlowVar dv = lvp.getDFVar(v);
-                tmp.clear(dv.getId());
+            if (i instanceof ResultInstr) {
+                tmp.clear(lvp.getDFVar(((ResultInstr) i).getResult()).getId());
 //                System.out.println("cleared live flag for: " + v);
             }
 
@@ -107,8 +105,8 @@ public class LiveVariableNode extends FlowGraphNode {
                 // Formalize this dependency somewhere?
                 Operand o = c.getClosureArg();
 //                   System.out.println("Processing closure: " + o + "-------");
-                if ((o != null) && (o instanceof MetaObject)) {
-                    IRClosure cl = (IRClosure)((MetaObject)o).scope;
+                if ((o != null) && (o instanceof WrappedIRClosure)) {
+                    IRClosure cl = ((WrappedIRClosure)o).getClosure();
                     if (c.isDataflowBarrier()) {
                         processClosure(cl, lvp.getAllVars());
 
@@ -253,9 +251,8 @@ public class LiveVariableNode extends FlowGraphNode {
         while (it.hasPrevious()) {
             Instr i = it.previous();
 //            System.out.println("DEAD?? " + i);
-            Variable v = i.getResult();
-            if (v != null) {
-                DataFlowVar dv = lvp.getDFVar(v);
+            if (i instanceof ResultInstr) {
+                DataFlowVar dv = lvp.getDFVar(((ResultInstr) i).getResult());
                     // If 'v' is not live at the instruction site, and it has no side effects, mark it dead!
                 if ((tmp.get(dv.getId()) == false) && !i.hasSideEffects() && !i.getOperation().isDebugOp()) {
 //                    System.out.println("YES!");
@@ -295,8 +292,8 @@ public class LiveVariableNode extends FlowGraphNode {
                     }
 
                     Operand o = c.getClosureArg();
-                    if ((o != null) && (o instanceof MetaObject)) {
-                        IRClosure cl = (IRClosure) ((MetaObject)o).scope;
+                    if ((o != null) && (o instanceof WrappedIRClosure)) {
+                        IRClosure cl = ((WrappedIRClosure)o).getClosure();
                         LiveVariablesProblem xlvp = (LiveVariablesProblem)cl.getDataFlowSolution(lvp.getName());
                         // Collect variables live on entry and merge that info into the current problem.
                         for (Variable y: xlvp.getVarsLiveOnEntry()) {

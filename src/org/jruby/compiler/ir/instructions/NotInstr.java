@@ -2,6 +2,7 @@ package org.jruby.compiler.ir.instructions;
 
 import java.util.Map;
 
+import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.BooleanLiteral;
 import org.jruby.compiler.ir.operands.Label;
@@ -12,31 +13,53 @@ import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
-public class NotInstr extends OneOperandInstr {
-    public NotInstr(Variable dst, Operand arg) {
-        super(Operation.NOT, dst, arg);
+public class NotInstr extends Instr implements ResultInstr {
+    private Operand arg;
+    private final Variable result;
+
+    public NotInstr(Variable result, Operand arg) {
+        super(Operation.NOT);
+        
+        assert result != null: "NotInstr result is null";
+        
+        this.arg = arg;
+        this.result = result;
+    }
+
+    public Operand[] getOperands() {
+        return new Operand[]{arg};
+    }
+
+    public Variable getResult() {
+        return result;
+    }
+    
+    @Override
+    public void simplifyOperands(Map<Operand, Operand> valueMap) {
+        arg = arg.getSimplifiedOperand(valueMap);
+    }
+
+    @Override
+    public String toString() {
+        return super.toString() + "(" + arg + ")";
     }
 
     @Override
     public Instr cloneForInlining(InlinerInfo ii) {
-        return new NotInstr(ii.getRenamedVariable(getResult()), argument.cloneForInlining(ii));
+        return new NotInstr(ii.getRenamedVariable(result), arg.cloneForInlining(ii));
     }
 
     @Override
     public Operand simplifyAndGetResult(Map<Operand, Operand> valueMap) {
         simplifyOperands(valueMap);
-        return (argument instanceof BooleanLiteral) ? ((BooleanLiteral) argument).logicalNot() : null;
+        return (arg instanceof BooleanLiteral) ? ((BooleanLiteral) arg).logicalNot() : null;
     }
 
-    // Can this instruction raise exceptions?
     @Override
-    public boolean canRaiseException() { return false; }
+    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+        boolean not = !((IRubyObject) arg.retrieve(interp, context, self)).isTrue();
 
-    @Override
-    public Label interpret(InterpreterContext interp, ThreadContext context, IRubyObject self) {
-        boolean not = !((IRubyObject) getArg().retrieve(interp, context, self)).isTrue();
-
-        getResult().store(interp, context, self, context.getRuntime().newBoolean(not));
+        result.store(interp, context, self, context.getRuntime().newBoolean(not));
         return null;
     }
 }

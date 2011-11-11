@@ -13,7 +13,7 @@ import org.jruby.compiler.ir.instructions.StoreToBindingInstr;
 import org.jruby.compiler.ir.instructions.ClosureReturnInstr;
 import org.jruby.compiler.ir.instructions.BreakInstr;
 import org.jruby.compiler.ir.operands.Operand;
-import org.jruby.compiler.ir.operands.MetaObject;
+import org.jruby.compiler.ir.operands.WrappedIRClosure;
 import org.jruby.compiler.ir.operands.ClosureLocalVariable;
 import org.jruby.compiler.ir.operands.LocalVariable;
 import org.jruby.compiler.ir.operands.Variable;
@@ -22,6 +22,7 @@ import org.jruby.compiler.ir.representations.BasicBlock;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.ListIterator;
+import org.jruby.compiler.ir.instructions.ResultInstr;
 
 public class BindingStorePlacementNode extends FlowGraphNode {
     public BindingStorePlacementNode(DataFlowProblem prob, BasicBlock n) {
@@ -74,10 +75,10 @@ public class BindingStorePlacementNode extends FlowGraphNode {
                 CallInstr call = (CallInstr) i;
                 // At this call site, a binding will get allocated if it has not been already!
                 Operand o = call.getClosureArg();
-                if ((o != null) && (o instanceof MetaObject)) {
+                if ((o != null) && (o instanceof WrappedIRClosure)) {
                     bindingAllocated = true;
 
-                    IRClosure cl = (IRClosure) ((MetaObject) o).scope;
+                    IRClosure cl = ((WrappedIRClosure) o).getClosure();
                     BindingStorePlacementProblem cl_bsp = new BindingStorePlacementProblem();
                     cl_bsp.setup(cl);
                     cl_bsp.compute_MOP_Solution();
@@ -106,12 +107,12 @@ public class BindingStorePlacementNode extends FlowGraphNode {
                 }
             }
 
-            Variable v = i.getResult();
+            if (i instanceof ResultInstr) {
+                Variable v = ((ResultInstr) i).getResult();
 
-            // %self is local to every scope and never crosses scope boundaries and need not be spilled/refilled
-            if ((v != null) && (v instanceof LocalVariable) && !((LocalVariable)v).isSelf()) {
-                dirtyVars.add((LocalVariable)v);
-            }
+                // %self is local to every scope and never crosses scope boundaries and need not be spilled/refilled
+                if (v instanceof LocalVariable && !((LocalVariable) v).isSelf()) dirtyVars.add((LocalVariable) v);
+            }            
             if (i.getOperation().isReturn()) dirtyVars.clear();
         }
 
@@ -173,8 +174,8 @@ public class BindingStorePlacementNode extends FlowGraphNode {
             if (i instanceof CallInstr) {
                 CallInstr call = (CallInstr) i;
                 Operand o = call.getClosureArg();
-                if ((o != null) && (o instanceof MetaObject)) {
-                    IRClosure scope = (IRClosure) ((MetaObject) o).scope;
+                if ((o != null) && (o instanceof WrappedIRClosure)) {
+                    IRClosure scope = ((WrappedIRClosure) o).getClosure();
 
                     BindingStorePlacementProblem cl_bsp = (BindingStorePlacementProblem) scope.getDataFlowSolution(bsp.getName());
 
@@ -275,11 +276,12 @@ public class BindingStorePlacementNode extends FlowGraphNode {
                 dirtyVars.clear();
             }
 
-            Variable v = i.getResult();
-            // %self is local to every scope and never crosses scope boundaries and need not be spilled/refilled
-            if ((v != null) && (v instanceof LocalVariable) && !((LocalVariable)v).isSelf()) {
-                dirtyVars.add((LocalVariable)v);
-            }
+            if (i instanceof ResultInstr) {
+                Variable v = ((ResultInstr) i).getResult();
+
+                // %self is local to every scope and never crosses scope boundaries and need not be spilled/refilled
+                if (v instanceof LocalVariable && !((LocalVariable) v).isSelf()) dirtyVars.add((LocalVariable) v);
+            }             
         }
 
         // If this is the exit BB, add binding stores for all vars that are still dirty

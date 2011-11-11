@@ -2,6 +2,7 @@ package org.jruby.compiler.ir.instructions;
 
 import org.jruby.RubyClass;
 import org.jruby.RubyClass.VariableAccessor;
+import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
@@ -18,18 +19,18 @@ public class GetFieldInstr extends GetInstr {
 
     public Instr cloneForInlining(InlinerInfo ii) {
         return new GetFieldInstr(ii.getRenamedVariable(getResult()),
-                getSource().cloneForInlining(ii), getName());
+                getSource().cloneForInlining(ii), getRef());
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, ThreadContext context, IRubyObject self) {
+    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
         IRubyObject object = (IRubyObject) getSource().retrieve(interp, context, self);
 
         // FIXME: Why getRealClass? Document
         RubyClass clazz = object.getMetaClass().getRealClass();
 
         // FIXME: Should add this as a field for instruction
-        VariableAccessor accessor = clazz.getVariableAccessorForRead(getName());
+        VariableAccessor accessor = clazz.getVariableAccessorForRead(getRef());
         Object v = accessor == null ? null : accessor.get(object);
         getResult().store(interp, context, self, v == null ? context.getRuntime().getNil() : v);
         return null;

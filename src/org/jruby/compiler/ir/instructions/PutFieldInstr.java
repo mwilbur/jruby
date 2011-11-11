@@ -1,6 +1,7 @@
 package org.jruby.compiler.ir.instructions;
 
 import org.jruby.RubyClass;
+import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
@@ -19,14 +20,14 @@ public class PutFieldInstr extends PutInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, ThreadContext context, IRubyObject self) {
+    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
         IRubyObject object = (IRubyObject) getTarget().retrieve(interp, context, self);
 
         // FIXME: Why getRealClass? Document
         RubyClass clazz = object.getMetaClass().getRealClass();
 
         // FIXME: Should add this as a field for instruction
-        clazz.getVariableAccessorForWrite(getName()).set(object, 
+        clazz.getVariableAccessorForWrite(getRef()).set(object, 
                 getValue().retrieve(interp, context, self));
         return null;
     }

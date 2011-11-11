@@ -12,6 +12,7 @@ import org.jruby.compiler.ir.operands.LocalVariable;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.interpreter.InterpreterContext;
+import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -27,17 +28,21 @@ import org.jruby.runtime.builtin.IRubyObject;
  * SSS FIXME: except perhaps when we use class_eval, module_eval, or instance_eval??
  */
 
-public class LoadFromBindingInstr extends Instr {
+public class LoadFromBindingInstr extends Instr implements ResultInstr {
     private IRMethod sourceMethod;
     private int bindingSlot;
     private String slotName;
+    private Variable result;
 
-    public LoadFromBindingInstr(Variable v, IRExecutionScope scope, String slotName) {
-        super(Operation.BINDING_LOAD, v);
+    public LoadFromBindingInstr(Variable result, IRExecutionScope scope, String slotName) {
+        super(Operation.BINDING_LOAD);
 
+        assert result != null: "LoadFromBindingInstr result is null";
+        
         this.slotName = slotName;
         this.sourceMethod = (IRMethod)scope.getClosestMethodAncestor();
         bindingSlot = sourceMethod.assignBindingSlot(slotName);
+        this.result = result;
     }
 
     public String getSlotName() {
@@ -47,14 +52,17 @@ public class LoadFromBindingInstr extends Instr {
     public Operand[] getOperands() { 
         return new Operand[] { };
     }
-
+    
+    public Variable getResult() {
+        return result;
+    }
     @Override
     public String toString() {
-        return "" + getResult() + " = BINDING(" + sourceMethod + ")." + getSlotName();
+        return "" + result + " = BINDING(" + sourceMethod + ")." + getSlotName();
     }
 
     public Instr cloneForInlining(InlinerInfo ii) {
-        return new LoadFromBindingInstr(ii.getRenamedVariable(getResult()), sourceMethod, getSlotName());
+        return new LoadFromBindingInstr(ii.getRenamedVariable(result), sourceMethod, getSlotName());
     }
 
     // Any exception raised by the execution of this instruction is an interpreter/compiler bug
@@ -65,13 +73,14 @@ public class LoadFromBindingInstr extends Instr {
 
     @Interp
     @Override
-    public Label interpret(InterpreterContext interp, ThreadContext context, IRubyObject self) {
-        LocalVariable v = (LocalVariable)getResult();
+    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+        LocalVariable v = (LocalVariable) result;
         
         if (bindingSlot == -1) bindingSlot = sourceMethod.getBindingSlot(getSlotName());
+        int depth = 0; // All binding slots are in the top-most scope
+        DynamicScope variableScope = context.getCurrentScope();
         
-        interp.setLocalVariable(v.getScopeDepth(), v.getLocation(),
-                interp.getSharedBindingVariable(context, bindingSlot));
+        variableScope.setValue(v.getLocation(), variableScope.getValue(bindingSlot, depth), v.getScopeDepth());
         
         return null;
     }

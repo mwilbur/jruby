@@ -1,8 +1,10 @@
 package org.jruby.compiler.ir.instructions;
 
+import java.util.Map;
 import org.jruby.compiler.ir.Interp;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.Label;
+import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.interpreter.InterpreterContext;
@@ -10,18 +12,39 @@ import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.javasupport.util.RuntimeHelpers;
 import org.jruby.ast.util.ArgsUtil;
 import org.jruby.RubyArray;
+import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.runtime.ThreadContext;
 
-// This instruction sets a new argument array -- this is used to intepret the block-arg assignment
-// tree of the form  |a,(b,(c,(d,..))),..| by pushing a argument array as we go up/down one level
+// This instruction sets a new newArgs array -- this is used to intepret the block-arg assignment
+// tree of the form  |a,(b,(c,(d,..))),..| by pushing a newArgs array as we go up/down one level
 // of this assignment tree.
-public class SetArgumentsInstr extends OneOperandInstr {
+public class SetArgumentsInstr extends Instr implements ResultInstr {
     private final boolean coerceToArray;
+    private Operand newArgs;
+    private final Variable destination;
 
-    public SetArgumentsInstr(Variable dest, Variable newArgs, boolean coerceToArray) {
-        super(Operation.SET_ARGS, dest, newArgs);
+    public SetArgumentsInstr(Variable destination, Variable newArgs, boolean coerceToArray) {
+        super(Operation.SET_ARGS);
+        
+        assert destination != null : "SetArgumentInstr is null";
         
         this.coerceToArray = coerceToArray;
+        this.newArgs = newArgs;
+        this.destination = destination;
+    }
+
+    public Operand[] getOperands() {
+        return new Operand[]{newArgs};
+    }
+    
+    public Variable getResult() {
+        return destination;
+    }
+
+
+    @Override
+    public void simplifyOperands(Map<Operand, Operand> valueMap) {
+        newArgs = newArgs.getSimplifiedOperand(valueMap);
     }
 
     @Override
@@ -35,24 +58,22 @@ public class SetArgumentsInstr extends OneOperandInstr {
 
     @Interp
     @Override
-    public Label interpret(InterpreterContext interp, ThreadContext context, IRubyObject self) {
-        Variable dest = getResult();
-        Object o = getArg().retrieve(interp, context, self);
+    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+        Object o = newArgs.retrieve(interp, context, self);
         if (coerceToArray) {
             // run to_ary and convert to java array
             if (!(o instanceof RubyArray)) o = RuntimeHelpers.aryToAry((IRubyObject)o);
             o = ((RubyArray)o).toJavaArray();
-        } else if (dest != null) {
+        } else {
             if (!(o instanceof RubyArray)) o = ArgsUtil.convertToRubyArray(context.getRuntime(), (IRubyObject)o, false);
             o = ((RubyArray)o).toJavaArray();
-		  }
+        }
 
-        // Set new arguments
+        // Set new newArgss
         IRubyObject[] origArgs = interp.setNewParameters((IRubyObject[])o);
 
         // Store it into the destination variable if we have a non-null variable
-        if (dest != null)
-            dest.store(interp, context, self, origArgs);
+        destination.store(interp, context, self, origArgs);
 
         return null;
     }
