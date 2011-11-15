@@ -5,9 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.jruby.javasupport.util.RuntimeHelpers;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.builtin.IRubyObject;
-import org.jruby.RubyArray;
 import org.jruby.runtime.ThreadContext;
 
 // This represents an array that is used solely during arguments construction
@@ -36,13 +34,12 @@ public class CompoundArray extends Operand {
 
     public Operand getAppendedArg() { return a2; }
 
-    public Operand getSimplifiedOperand(Map<Operand, Operand> valueMap) {
+    public Operand getSimplifiedOperand(Map<Operand, Operand> valueMap, boolean force) {
+        a1 = a1.getSimplifiedOperand(valueMap, force);
+        a2 = a2.getSimplifiedOperand(valueMap, force);
 /*
  * SSS FIXME:  Cannot convert this to an Array operand!
  *
-        a1 = a1.getSimplifiedOperand(valueMap);
-        a2 = a2.getSimplifiedOperand(valueMap);
-
         // For simplification, get the target value, even if compound
         Operand p1 = a1;
         if (p1 instanceof Variable)
@@ -86,9 +83,9 @@ public class CompoundArray extends Operand {
     }
 
     @Override
-    public Object retrieve(InterpreterContext interp, ThreadContext context, IRubyObject self) {
-        IRubyObject v1 = (IRubyObject)a1.retrieve(interp, context, self);
-        IRubyObject v2 = (IRubyObject)a2.retrieve(interp, context, self);
+    public Object retrieve(ThreadContext context, IRubyObject self, Object[] temp) {
+        IRubyObject v1 = (IRubyObject)a1.retrieve(context, self, temp);
+        IRubyObject v2 = (IRubyObject)a2.retrieve(context, self, temp);
         return RuntimeHelpers.argsCat(v1, v2);
     }
 }

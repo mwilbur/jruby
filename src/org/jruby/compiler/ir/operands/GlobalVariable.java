@@ -1,7 +1,7 @@
 package org.jruby.compiler.ir.operands;
+
+import java.util.List;
 import org.jruby.compiler.ir.Interp;
-import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -23,16 +23,21 @@ public class GlobalVariable extends Operand {
 
         return name.compareTo(((GlobalVariable) arg0).name);
     }
+
+    @Override
+    public void addUsedVariables(List<Variable> l) { 
+        /* Nothing to do */
+    }
     
     @Interp
     @Override
-    public Object retrieve(InterpreterContext interp, ThreadContext context, IRubyObject self) {
+    public Object retrieve(ThreadContext context, IRubyObject self, Object[] temp) {
         return context.getRuntime().getGlobalVariables().get(getName());
     }
 
     @Interp
     @Override
-    public Object store(InterpreterContext interp, ThreadContext context, IRubyObject self, Object value) {
+    public Object store(ThreadContext context, IRubyObject self, Object[] temp, Object value) {
         return context.getRuntime().getGlobalVariables().set(getName(), (IRubyObject) value);
     }
 

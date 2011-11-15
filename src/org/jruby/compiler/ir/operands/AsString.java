@@ -1,6 +1,7 @@
 package org.jruby.compiler.ir.operands;
 
-import org.jruby.interpreter.InterpreterContext;
+import java.util.List;
+import java.util.Map;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -8,12 +9,24 @@ public class AsString extends Operand {
     Operand source; 
 
     public AsString(Operand source) {
+        if (source == null) source = new StringLiteral("");
         this.source = source;
     }
 
     @Override
-    public Object retrieve(InterpreterContext interp, ThreadContext context, IRubyObject self) {
-        return ((IRubyObject)source.retrieve(interp, context, self)).asString();
+    public Object retrieve(ThreadContext context, IRubyObject self, Object[] temp) {
+        return ((IRubyObject)source.retrieve(context, self, temp)).asString();
+    }
+
+    @Override
+    public Operand getSimplifiedOperand(Map<Operand, Operand> valueMap, boolean force) {
+        source = source.getSimplifiedOperand(valueMap, force);
+        return this;
+    }
+
+    @Override
+    public void addUsedVariables(List<Variable> l) {
+        source.addUsedVariables(l);
     }
 
     @Override

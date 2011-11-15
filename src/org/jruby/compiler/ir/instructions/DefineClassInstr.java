@@ -4,20 +4,18 @@ import java.util.Map;
 import org.jruby.RubyModule;
 import org.jruby.RubyClass;
 import org.jruby.compiler.ir.IRClass;
-import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.IRMetaClass;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Nil;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.Visibility;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.internal.runtime.methods.DynamicMethod;
 import org.jruby.internal.runtime.methods.InterpretedIRMethod;
+import org.jruby.runtime.Block;
 
 public class DefineClassInstr extends Instr implements ResultInstr {
     private IRClass newIRClass;
@@ -44,10 +42,14 @@ public class DefineClassInstr extends Instr implements ResultInstr {
         return result;
     }
 
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        container = container.getSimplifiedOperand(valueMap);
-        superClass = superClass.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        container = container.getSimplifiedOperand(valueMap, force);
+        superClass = superClass.getSimplifiedOperand(valueMap, force);
     }
 
     @Override
@@ -60,14 +62,14 @@ public class DefineClassInstr extends Instr implements ResultInstr {
         return new DefineClassInstr(ii.getRenamedVariable(result), this.newIRClass, container.cloneForInlining(ii), superClass.cloneForInlining(ii));
     }
     
-    private RubyModule newClass(InterpreterContext interp, ThreadContext context, IRubyObject self, RubyModule classContainer) {
+    private RubyModule newClass(ThreadContext context, IRubyObject self, RubyModule classContainer, Object[] temp) {
         if (newIRClass instanceof IRMetaClass) return classContainer.getMetaClass();
 
         RubyClass sc;
         if (superClass == Nil.NIL) {
             sc = null;
         } else {
-            Object o = superClass.retrieve(interp, context, self);
+            Object o = superClass.retrieve(context, self, temp);
 
             if (!(o instanceof RubyClass)) throw context.getRuntime().newTypeError("superclass must be Class (" + o + " given)");
             
@@ -78,12 +80,12 @@ public class DefineClassInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
-        Object rubyContainer = container.retrieve(interp, context, self);
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+        Object rubyContainer = container.retrieve(context, self, temp);
         
         if (!(rubyContainer instanceof RubyModule)) throw context.getRuntime().newTypeError("no outer class/module");
         
-        RubyModule newRubyClass = newClass(interp, context, self, (RubyModule) rubyContainer);
+        RubyModule newRubyClass = newClass(context, self, (RubyModule) rubyContainer, temp);
 
         // Interpret the body
         newIRClass.getStaticScope().setModule(newRubyClass);
@@ -92,7 +94,7 @@ public class DefineClassInstr extends Instr implements ResultInstr {
         Object v = method.call(context, newRubyClass, newRubyClass, "", new IRubyObject[]{}, block);
 
         // Result from interpreting the body
-        result.store(interp, context, self, v);
+        result.store(context, self, temp, v);
         return null;
     }
 }

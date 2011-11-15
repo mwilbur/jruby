@@ -5,16 +5,14 @@ import org.jruby.Ruby;
 import org.jruby.RubyClass;
 import org.jruby.RubyFixnum;
 import org.jruby.RubySymbol;
-import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.IRMetaClass;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.internal.runtime.methods.DynamicMethod;
 import org.jruby.internal.runtime.methods.InterpretedIRMethod;
-import org.jruby.interpreter.InterpreterContext;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.Visibility;
 import org.jruby.runtime.builtin.IRubyObject;
@@ -22,7 +20,7 @@ import org.jruby.runtime.builtin.IRubyObject;
 public class DefineMetaClassInstr extends Instr implements ResultInstr {
     private IRMetaClass dummyMetaClass;
     private Operand object;
-    private final Variable result;
+    private Variable result;
     
     public DefineMetaClassInstr(Variable result, Operand object, IRMetaClass dummyMetaClass) {
         super(Operation.DEF_META_CLASS);
@@ -42,9 +40,13 @@ public class DefineMetaClassInstr extends Instr implements ResultInstr {
         return result;
     }
 
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        object = object.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        object = object.getSimplifiedOperand(valueMap, force);
     }
 
     @Override
@@ -58,9 +60,9 @@ public class DefineMetaClassInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
         Ruby runtime = context.getRuntime();
-        IRubyObject obj = (IRubyObject)object.retrieve(interp, context, self);
+        IRubyObject obj = (IRubyObject)object.retrieve(context, self, temp);
         
         if (obj instanceof RubyFixnum || obj instanceof RubySymbol) {
             throw runtime.newTypeError("no virtual class for " + obj.getMetaClass().getBaseName());
@@ -74,7 +76,7 @@ public class DefineMetaClassInstr extends Instr implements ResultInstr {
             DynamicMethod method = new InterpretedIRMethod(dummyMetaClass.getRootMethod(), Visibility.PUBLIC, singletonClass);
             // SSS FIXME: Rather than pass the block implicitly, should we add %block as another operand to DefineMetaClass instr?
             Object v = method.call(context, singletonClass, singletonClass, "", new IRubyObject[]{}, block);
-            result.store(interp, context, self, v);
+            result.store(context, self, temp, v);
             return null;
         }
     }

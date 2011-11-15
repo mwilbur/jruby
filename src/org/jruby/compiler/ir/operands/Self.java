@@ -1,7 +1,5 @@
-
 package org.jruby.compiler.ir.operands;
 
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -23,14 +21,14 @@ public class Self extends LocalVariable {
     }
 
     @Override
-    public Object retrieve(InterpreterContext interp, ThreadContext context, IRubyObject self) {
+    public Object retrieve(ThreadContext context, IRubyObject self, Object[] temp) {
         // SSS FIXME: Should we have a special case for self?
         //return interp.getLocalVariable(getName());
         return self;
     }
 
     @Override
-    public Object store(InterpreterContext interp, ThreadContext context, IRubyObject self, Object value) {
+    public Object store(ThreadContext context, IRubyObject self, Object[] temp, Object value) {
         return self;
     }
 

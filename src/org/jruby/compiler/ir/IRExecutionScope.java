@@ -12,7 +12,7 @@ import java.util.TreeSet;
 import org.jruby.compiler.ir.compiler_pass.CompilerPass;
 import org.jruby.compiler.ir.compiler_pass.DominatorTreeBuilder;
 import org.jruby.compiler.ir.dataflow.DataFlowProblem;
-import org.jruby.compiler.ir.instructions.CallInstr;
+import org.jruby.compiler.ir.instructions.CallBase;
 import org.jruby.compiler.ir.instructions.CopyInstr;
 import org.jruby.compiler.ir.instructions.Instr;
 import org.jruby.compiler.ir.instructions.ReceiveClosureInstr;
@@ -149,7 +149,12 @@ public abstract class IRExecutionScope extends IRScopeImpl {
     public void addClosure(IRClosure c) {
         closures.add(c);
     }
-
+    
+    @Override
+    public Instr getLastInstr() {
+        return instructions.get(instructions.size() - 1);
+    }
+    
     @Override
     public void addInstr(Instr i) {
         instructions.add(i);
@@ -186,6 +191,15 @@ public abstract class IRExecutionScope extends IRScopeImpl {
         IRExecutionScope s = this;
         while (!(s instanceof IRMethod)) {
             s = (IRExecutionScope)s.getLexicalParent();
+        }
+
+        return (IRMethod) s;
+    }
+
+    public IRMethod getClosestNonRootMethodAncestor() {
+        IRScope s = this;
+        while ((s != null) && (!(s instanceof IRMethod) || ((IRMethod)s).isAModuleRootMethod())) {
+            s = s.getLexicalParent();
         }
 
         return (IRMethod) s;
@@ -247,8 +261,8 @@ public abstract class IRExecutionScope extends IRScopeImpl {
             if (i instanceof SuperInstr)
                 canCaptureCallersBinding = true;
 
-            if (i instanceof CallInstr) {
-                CallInstr call = (CallInstr) i;
+            if (i instanceof CallBase) {
+                CallBase call = (CallBase) i;
                 if (call.targetRequiresCallersBinding())
                     requiresBinding = true;
 
@@ -498,7 +512,10 @@ public abstract class IRExecutionScope extends IRScopeImpl {
             buildLinearization(); // FIXME: compiler passes should have done this
             depends(linearization());
         } catch (RuntimeException e) {
-            LOG.error("Error linearizing: " + cfg(), e);
+            LOG.error("Error linearizing cfg: ", e);
+            CFG c = cfg();
+            LOG.error("\nGraph:\n" + c.toStringGraph());
+            LOG.error("\nInstructions:\n" + c.toStringInstrs());
             throw e;
         }
 
@@ -627,7 +644,7 @@ public abstract class IRExecutionScope extends IRScopeImpl {
 //        }
     }    
     
-    public void inlineMethod(IRMethod method, BasicBlock basicBlock, CallInstr call) {
+    public void inlineMethod(IRMethod method, BasicBlock basicBlock, CallBase call) {
         depends(cfg());
         
         new CFGInliner(cfg).inlineMethod(method, basicBlock, call);

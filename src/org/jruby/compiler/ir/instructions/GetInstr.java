@@ -10,7 +10,7 @@ import org.jruby.compiler.ir.operands.Variable;
 public abstract class GetInstr extends Instr implements ResultInstr {
     private Operand source;
     private String  ref;
-    private final Variable result;
+    private Variable result;
 
     public GetInstr(Operation op, Variable result, Operand source, String ref) {
         super(op);
@@ -30,6 +30,10 @@ public abstract class GetInstr extends Instr implements ResultInstr {
         return result;
     }
 
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     public Operand[] getOperands() { 
         return new Operand[] { source };
     }
@@ -44,7 +48,7 @@ public abstract class GetInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        source = source.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        source = source.getSimplifiedOperand(valueMap, force);
     }
 }

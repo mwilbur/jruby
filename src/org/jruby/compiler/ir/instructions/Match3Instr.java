@@ -4,15 +4,14 @@
  */
 package org.jruby.compiler.ir.instructions;
 
+import java.util.Map;
 import org.jruby.RubyRegexp;
 import org.jruby.RubyString;
-import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -21,9 +20,9 @@ import org.jruby.runtime.builtin.IRubyObject;
  * @author enebo
  */
 public class Match3Instr extends Instr implements ResultInstr {
-    private final Variable result;
-    private final Operand receiver;
-    private final Operand arg;
+    private Variable result;
+    private Operand receiver;
+    private Operand arg;
     
     public Match3Instr(Variable result, Operand receiver, Operand arg) {
         super(Operation.MATCH3);
@@ -40,10 +39,20 @@ public class Match3Instr extends Instr implements ResultInstr {
         return new Operand[] { receiver, arg };
     }
 
+    @Override
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        receiver = receiver.getSimplifiedOperand(valueMap, force);
+        arg = arg.getSimplifiedOperand(valueMap, force);
+    }
+
     public Variable getResult() {
         return result;
     }
     
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     @Override
     public Instr cloneForInlining(InlinerInfo ii) {
         return new Match3Instr((Variable) result.cloneForInlining(ii),
@@ -51,9 +60,9 @@ public class Match3Instr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
-        RubyRegexp regexp = (RubyRegexp) receiver.retrieve(interp, context, self);
-        IRubyObject argValue = (IRubyObject) arg.retrieve(interp, context, self);
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+        RubyRegexp regexp = (RubyRegexp) receiver.retrieve(context, self, temp);
+        IRubyObject argValue = (IRubyObject) arg.retrieve(context, self, temp);
         
         Object resultValue;
         if (argValue instanceof RubyString) {
@@ -62,7 +71,7 @@ public class Match3Instr extends Instr implements ResultInstr {
             resultValue = argValue.callMethod(context, "=~", regexp);
         }
         
-        result.store(interp, context, self, resultValue);                
+        result.store(context, self, temp, resultValue);                
         return null;                
     }
 }

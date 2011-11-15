@@ -1,13 +1,11 @@
 package org.jruby.compiler.ir.instructions;
 
 import java.util.Map;
-import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -15,7 +13,7 @@ public class InstanceOfInstr extends Instr implements ResultInstr {
     private Class type;
     private String className;
     private Operand object;
-    private final Variable result;
+    private Variable result;
 
     public InstanceOfInstr(Variable result, Operand object, String className) {
         super(Operation.INSTANCE_OF);
@@ -39,9 +37,13 @@ public class InstanceOfInstr extends Instr implements ResultInstr {
         return result;
     }
     
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        object = object.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        object = object.getSimplifiedOperand(valueMap, force);
     }
 
     @Override 
@@ -50,7 +52,7 @@ public class InstanceOfInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
         try {
             if (type == null) type = Class.forName(className);
         } catch (ClassNotFoundException e) {
@@ -61,8 +63,7 @@ public class InstanceOfInstr extends Instr implements ResultInstr {
             // for user ruby code, this may no longer be true and we have to appropriately fix this code then.
             throw new RuntimeException(e);
         }
-        result.store(interp, context, self, 
-                context.getRuntime().newBoolean(type.isInstance(object.retrieve(interp, context, self)))); 
+        result.store(context, self, temp, context.getRuntime().newBoolean(type.isInstance(object.retrieve(context, self, temp)))); 
         return null;
     }
 }

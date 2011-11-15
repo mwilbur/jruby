@@ -2,7 +2,6 @@ package org.jruby.compiler.ir.instructions;
 
 import org.jruby.compiler.ir.IRModule;
 import org.jruby.compiler.ir.Operation;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.UndefinedValue;
 import org.jruby.compiler.ir.operands.Variable;
@@ -12,9 +11,8 @@ import org.jruby.Ruby;
 import org.jruby.runtime.ThreadContext;
 
 import org.jruby.RubyModule;
-import org.jruby.compiler.ir.IRExecutionScope;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.parser.StaticScope;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.builtin.IRubyObject;
 
 // The runtime method call that GET_CONST is translated to in this case will call
@@ -25,7 +23,7 @@ import org.jruby.runtime.builtin.IRubyObject;
 public class SearchConstInstr extends Instr implements ResultInstr {
     IRModule definingModule;
     String constName;
-    private final Variable result;
+    private Variable result;
 
     public SearchConstInstr(Variable result, IRModule definingModule, String constName) {
         super(Operation.SEARCH_CONST);
@@ -38,11 +36,15 @@ public class SearchConstInstr extends Instr implements ResultInstr {
     }
 
     public Operand[] getOperands() { 
-        return new Operand[] {};
+        return EMPTY_OPERANDS;
     }
     
     public Variable getResult() {
         return result;
+    }
+
+    public void updateResult(Variable v) {
+        this.result = v;
     }
 
     public Instr cloneForInlining(InlinerInfo ii) {
@@ -55,7 +57,7 @@ public class SearchConstInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
         StaticScope staticScope = definingModule == null ? context.getCurrentScope().getStaticScope() : definingModule.getStaticScope();
         Ruby runtime = context.getRuntime();
         RubyModule object = runtime.getObject();
@@ -69,7 +71,7 @@ public class SearchConstInstr extends Instr implements ResultInstr {
 
         if (constant == null) constant = UndefinedValue.UNDEFINED;
         
-        result.store(interp, context, self, constant);
+        result.store(context, self, temp, constant);
 
         return null;
     }

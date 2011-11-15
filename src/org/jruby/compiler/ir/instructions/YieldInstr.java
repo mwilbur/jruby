@@ -3,18 +3,15 @@ package org.jruby.compiler.ir.instructions;
 import java.util.Map;
 import org.jruby.compiler.ir.Interp;
 import org.jruby.compiler.ir.Operation;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.RubyArray;
 import org.jruby.RubyProc;
 import org.jruby.RubyNil;
-import org.jruby.compiler.ir.IRExecutionScope;
 
 public class YieldInstr extends Instr implements ResultInstr {
     Operand blockArg;
@@ -40,9 +37,9 @@ public class YieldInstr extends Instr implements ResultInstr {
 
     @Interp
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
         Object resultValue;
-        Object blk = (Object) blockArg.retrieve(interp, context, self);
+        Object blk = (Object) blockArg.retrieve(context, self, temp);
         if (blk instanceof RubyProc) blk = ((RubyProc)blk).getBlock();
         if (blk instanceof RubyNil) blk = Block.NULL_BLOCK;
         // Blocks that get yielded are always normal
@@ -51,11 +48,11 @@ public class YieldInstr extends Instr implements ResultInstr {
         if (yieldArg == null) {
             resultValue = b.yieldSpecific(context);
         } else {
-            IRubyObject yieldVal = (IRubyObject)yieldArg.retrieve(interp, context, self);
+            IRubyObject yieldVal = (IRubyObject)yieldArg.retrieve(context, self, temp);
             resultValue = (unwrapArray && (yieldVal instanceof RubyArray)) ? b.yieldArray(context, yieldVal, null, null) : b.yield(context, yieldVal);
         }
         
-        result.store(interp, context, self, resultValue);
+        result.store(context, self, temp, resultValue);
         
         return null;
     }
@@ -74,12 +71,17 @@ public class YieldInstr extends Instr implements ResultInstr {
         return result;
     }    
 
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     public Operand[] getNonBlockOperands() {
         return (yieldArg == null) ? new Operand[]{} : new Operand[] {yieldArg};
     }
 
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        if (yieldArg != null) yieldArg = yieldArg.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        blockArg = blockArg.getSimplifiedOperand(valueMap, force);
+        if (yieldArg != null) yieldArg = yieldArg.getSimplifiedOperand(valueMap, force);
     }
 }

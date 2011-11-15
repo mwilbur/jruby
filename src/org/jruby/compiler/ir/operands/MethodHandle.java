@@ -1,6 +1,7 @@
 package org.jruby.compiler.ir.operands;
 
 import java.util.Map;
+import java.util.List;
 
 import org.jruby.RubyClass;
 import org.jruby.RubyString;
@@ -8,7 +9,6 @@ import org.jruby.RubySymbol;
 import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.internal.runtime.methods.DynamicMethod;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.callsite.CacheEntry;
 
@@ -48,9 +48,15 @@ public class MethodHandle extends Operand {
     }
 
     @Override
-    public Operand getSimplifiedOperand(Map<Operand, Operand> valueMap) {
-        methodName = methodName.getSimplifiedOperand(valueMap);
-        receiver = receiver.getSimplifiedOperand(valueMap);
+    public void addUsedVariables(List<Variable> l) { 
+        methodName.addUsedVariables(l);
+        receiver.addUsedVariables(l);
+    }
+
+    @Override
+    public Operand getSimplifiedOperand(Map<Operand, Operand> valueMap, boolean force) {
+        methodName = methodName.getSimplifiedOperand(valueMap, force);
+        receiver = receiver.getSimplifiedOperand(valueMap, force);
         return this;
     }
 
@@ -65,13 +71,13 @@ public class MethodHandle extends Operand {
     }
 
     @Override
-    public Object retrieve(InterpreterContext interp, ThreadContext context, IRubyObject self) {
-        receiverObj = (IRubyObject)receiver.retrieve(interp, context, self);
+    public Object retrieve(ThreadContext context, IRubyObject self, Object[] temp) {
+        receiverObj = (IRubyObject)receiver.retrieve(context, self, temp);
 
         if (methodName instanceof MethAddr) {
             resolvedMethodName = ((MethAddr)methodName).getName();
         } else {
-            IRubyObject mnameObj = (IRubyObject)methodName.retrieve(interp, context, self);
+            IRubyObject mnameObj = (IRubyObject)methodName.retrieve(context, self, temp);
 
             // SSS FIXME: If this is not a ruby string or a symbol, then this is an error in the source code!
             // Raise an exception and throw an error.  This should not be an assert.

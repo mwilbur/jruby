@@ -1,13 +1,11 @@
 package org.jruby.compiler.ir.instructions;
 
 import org.jruby.RubyModule;
-import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -22,9 +20,8 @@ public class GetClassVariableInstr extends GetInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
-        getResult().store(interp, context, self, 
-                ((RubyModule) getSource().retrieve(interp, context, self)).getClassVar(getRef()));
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+        getResult().store(context, self, temp, ((RubyModule) getSource().retrieve(context, self, temp)).getClassVar(getRef()));
         return null;
     }
 }

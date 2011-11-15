@@ -1,22 +1,10 @@
-/*
- * To change this template, choose Tools | Templates
- * and open the template in the editor.
- */
-
 package org.jruby.compiler.ir.instructions;
 
-import java.util.Map;
 import org.jruby.RubyModule;
-import org.jruby.compiler.ir.IRExecutionScope;
-import org.jruby.compiler.ir.IRModule;
-import org.jruby.compiler.ir.IRScope;
 import org.jruby.compiler.ir.Operation;
-import org.jruby.compiler.ir.operands.Label;
-import org.jruby.compiler.ir.operands.WrappedIRClosure;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
@@ -35,8 +23,8 @@ public class GetConstInstr extends GetInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
-        Object source = getSource().retrieve(interp, context, self);
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+        Object source = getSource().retrieve(context, self, temp);
         RubyModule module;
 
         // Retrieving a WrappedIRClosure which is a closure returns a closure and not
@@ -55,7 +43,7 @@ public class GetConstInstr extends GetInstr {
         if (constant == null) constant = module.getConstantFromConstMissing(getRef());
 
         //if (container == null) throw runtime.newNameError("unitialized constant " + scope.getName(), scope.getName());
-        getResult().store(interp, context, self, constant);
+        getResult().store(context, self, temp, constant);
         return null;
     }
 }

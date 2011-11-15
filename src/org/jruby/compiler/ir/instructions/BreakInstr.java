@@ -4,10 +4,9 @@ import java.util.Map;
 import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.Operand;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.interpreter.IRBreakJump;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -49,8 +48,8 @@ public class BreakInstr extends Instr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
-        throw new IRBreakJump(scopeToReturnTo, returnValue.retrieve(interp, context, self));
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+        throw new IRBreakJump(scopeToReturnTo, returnValue.retrieve(context, self, temp));
     }
 
     @Override
@@ -59,7 +58,7 @@ public class BreakInstr extends Instr {
     }
 
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        returnValue = returnValue.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        returnValue = returnValue.getSimplifiedOperand(valueMap, force);
     }
 }

@@ -2,24 +2,22 @@ package org.jruby.compiler.ir.instructions;
 
 import java.util.Map;
 import org.jruby.RubyModule;
-import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.IRModule;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.Visibility;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.internal.runtime.methods.DynamicMethod;
 import org.jruby.internal.runtime.methods.InterpretedIRMethod;
+import org.jruby.runtime.Block;
 
 public class DefineModuleInstr extends Instr implements ResultInstr {
     private final IRModule newIRModule;
     private Operand container;
-    private final Variable result;
+    private Variable result;
 
     public DefineModuleInstr(IRModule newIRModule, Variable result, Operand container) {
         super(Operation.DEF_MODULE);
@@ -39,9 +37,13 @@ public class DefineModuleInstr extends Instr implements ResultInstr {
         return result;
     }
 
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        container = container.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        container = container.getSimplifiedOperand(valueMap, force);
     }
 
     @Override
@@ -55,8 +57,8 @@ public class DefineModuleInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
-        Object rubyContainer = container.retrieve(interp, context, self);
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+        Object rubyContainer = container.retrieve(context, self, temp);
         
         if (!(rubyContainer instanceof RubyModule)) throw context.getRuntime().newTypeError("no outer class/module");
 
@@ -66,7 +68,7 @@ public class DefineModuleInstr extends Instr implements ResultInstr {
 
         // SSS FIXME: Rather than pass the block implicitly, should we add %block as another operand to DefineClass, DefineModule instrs?
         Object value = method.call(context, newRubyModule, newRubyModule, "", new IRubyObject[]{}, block);
-        result.store(interp, context, self, value);
+        result.store(context, self, temp, value);
         return null;
     }
 }

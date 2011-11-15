@@ -1,17 +1,15 @@
 package org.jruby.compiler.ir.instructions;
 
-import java.util.Map;
 
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.IRMethod;
 import org.jruby.compiler.ir.Interp;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.LocalVariable;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
@@ -50,13 +48,17 @@ public class LoadFromBindingInstr extends Instr implements ResultInstr {
     }
 
     public Operand[] getOperands() { 
-        return new Operand[] { };
+        return EMPTY_OPERANDS;
     }
     
     public Variable getResult() {
         return result;
     }
     @Override
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     public String toString() {
         return "" + result + " = BINDING(" + sourceMethod + ")." + getSlotName();
     }
@@ -73,7 +75,7 @@ public class LoadFromBindingInstr extends Instr implements ResultInstr {
 
     @Interp
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
         LocalVariable v = (LocalVariable) result;
         
         if (bindingSlot == -1) bindingSlot = sourceMethod.getBindingSlot(getSlotName());
