@@ -2,17 +2,15 @@ package org.jruby.compiler.ir.instructions;
 
 import java.util.Map;
 import org.jruby.compiler.ir.Operation;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.UndefinedValue;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.RubyArray;
 import org.jruby.RubyModule;
-import org.jruby.compiler.ir.IRExecutionScope;
+import org.jruby.runtime.Block;
 
 // This instruction is similar to EQQInstr, except it also verifies that
 // the type to EQQ with is actually a class or a module since rescue clauses
@@ -22,7 +20,7 @@ import org.jruby.compiler.ir.IRExecutionScope;
 public class RescueEQQInstr extends Instr implements ResultInstr {
     private Operand arg1;
     private Operand arg2;
-    private final Variable result;
+    private Variable result;
 
     public RescueEQQInstr(Variable result, Operand v1, Operand v2) {
         super(Operation.RESCUE_EQQ);
@@ -42,10 +40,14 @@ public class RescueEQQInstr extends Instr implements ResultInstr {
         return result;
     }
     
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        arg1 = arg1.getSimplifiedOperand(valueMap);
-        arg2 = arg2.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        arg1 = arg1.getSimplifiedOperand(valueMap, force);
+        arg2 = arg2.getSimplifiedOperand(valueMap, force);
     }
 
     @Override
@@ -59,12 +61,12 @@ public class RescueEQQInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
-        IRubyObject receiver = (IRubyObject) arg1.retrieve(interp, context, self);
-        IRubyObject value = (IRubyObject) arg2.retrieve(interp, context, self);
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+        IRubyObject receiver = (IRubyObject) arg1.retrieve(context, self, temp);
+        IRubyObject value = (IRubyObject) arg2.retrieve(context, self, temp);
 
         if (value == UndefinedValue.UNDEFINED) {
-            result.store(interp, context, self, receiver);
+            result.store(context, self, temp, receiver);
         } else if (receiver instanceof RubyArray) {
             RubyArray testVals = (RubyArray)receiver;
             for (int i = 0, n = testVals.getLength(); i < n; i++) {
@@ -74,16 +76,16 @@ public class RescueEQQInstr extends Instr implements ResultInstr {
                 }
                 IRubyObject eqqVal = excType.callMethod(context, "===", value);
                 if (eqqVal.isTrue()) {
-                    result.store(interp, context, self, eqqVal);
+                    result.store(context, self, temp, eqqVal);
                     return null;
                 }
             }
-            result.store(interp, context, self, context.getRuntime().newBoolean(false));
+            result.store(context, self, temp, context.getRuntime().newBoolean(false));
         } else {
             if (!(receiver instanceof RubyModule)) {
                throw context.getRuntime().newTypeError("class or module required for rescue clause. Found: " + receiver);
             }
-            result.store(interp, context, self, receiver.callMethod(context, "===", value));
+            result.store(context, self, temp, receiver.callMethod(context, "===", value));
         }
         
         return null;

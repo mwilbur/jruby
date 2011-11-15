@@ -4,20 +4,18 @@ import java.util.Map;
 
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.Array;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.ast.util.ArgsUtil;
 import org.jruby.RubyArray;
-import org.jruby.compiler.ir.IRExecutionScope;
+import org.jruby.runtime.Block;
 
 public class EnsureRubyArrayInstr extends Instr implements ResultInstr {
     private Operand object;
-    private final Variable result;
+    private Variable result;
 
     public EnsureRubyArrayInstr(Variable result, Operand s) {
         super(Operation.ENSURE_RUBY_ARRAY);
@@ -30,7 +28,7 @@ public class EnsureRubyArrayInstr extends Instr implements ResultInstr {
 
     @Override
     public Operand simplifyAndGetResult(Map<Operand, Operand> valueMap) {
-        simplifyOperands(valueMap);
+        simplifyOperands(valueMap, false);
         return (object instanceof Array) ? object : null;
     }
 
@@ -42,9 +40,13 @@ public class EnsureRubyArrayInstr extends Instr implements ResultInstr {
         return result;
     }
     
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        object = object.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        object = object.getSimplifiedOperand(valueMap, force);
     }
 
     @Override
@@ -58,10 +60,10 @@ public class EnsureRubyArrayInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
-        IRubyObject val = (IRubyObject)object.retrieve(interp, context, self);
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+        IRubyObject val = (IRubyObject)object.retrieve(context, self, temp);
         if (!(val instanceof RubyArray)) val = ArgsUtil.convertToRubyArray(context.getRuntime(), val, false);
-        result.store(interp, context, self, val);
+        result.store(context, self, temp, val);
         return null;
     }
 }

@@ -2,15 +2,13 @@ package org.jruby.compiler.ir.instructions;
 
 import java.util.Map;
 
-import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.BooleanLiteral;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Nil;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -20,7 +18,7 @@ import org.jruby.runtime.builtin.IRubyObject;
 //
 public class IsTrueInstr extends Instr implements ResultInstr {
     private Operand value;
-    private final Variable result;
+    private Variable result;
 
     public IsTrueInstr(Variable result, Operand value) {
         super(Operation.IS_TRUE);
@@ -39,9 +37,13 @@ public class IsTrueInstr extends Instr implements ResultInstr {
         return result;
     }
     
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        value = value.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        value = value.getSimplifiedOperand(valueMap, force);
     }
 
     @Override
@@ -51,7 +53,7 @@ public class IsTrueInstr extends Instr implements ResultInstr {
 
     @Override
     public Operand simplifyAndGetResult(Map<Operand, Operand> valueMap) {
-        simplifyOperands(valueMap);
+        simplifyOperands(valueMap, false);
         if (!value.isConstant()) return null;
 
         return value == Nil.NIL || value == BooleanLiteral.FALSE ?
@@ -64,10 +66,9 @@ public class IsTrueInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
         // ENEBO: This seems like a lot of extra work...
-        result.store(interp, context, self, 
-                context.getRuntime().newBoolean(((IRubyObject) value.retrieve(interp, context, self)).isTrue()));
+        result.store(context, self, temp, context.getRuntime().newBoolean(((IRubyObject) value.retrieve(context, self, temp)).isTrue()));
         return null;
     }
 }

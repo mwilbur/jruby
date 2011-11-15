@@ -1,7 +1,5 @@
 package org.jruby.compiler.ir.operands;
 
-import org.jruby.interpreter.InterpreterContext;
-
 /**
  * Generic variable with a custom prefix -- mostly used during optimization passes
  * where we need to rename existing variables
@@ -11,7 +9,7 @@ public class RenamedVariable extends TemporaryVariable {
 
     public RenamedVariable(String prefix, int offset) {
         super(offset);
-		  this.prefix = prefix;
+        this.prefix = prefix;
     }
 
     @Override

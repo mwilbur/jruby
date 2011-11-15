@@ -292,7 +292,7 @@ public class RbConfigLibrary implements Library {
         } else if (Platform.IS_MAC) {
             ldsharedflags = " -dynamic -bundle -undefined dynamic_lookup ";
             cflags = " -fPIC -DTARGET_RT_MAC_CFM=0 " + cflags;
-            ldflags += " -bundle -framework JavaVM -Wl,-syslibroot,$(SDKROOT) -mmacosx-version-min=10.4 ";
+            ldflags += " -bundle -framework JavaVM -Wl,-syslibroot,$(SDKROOT) -mmacosx-version-min=10.5 ";
             archflags = " -arch " + Platform.ARCH;
             cppflags = " -D_XOPEN_SOURCE -D_DARWIN_C_SOURCE " + cppflags;
             setConfig(mkmfHash, "DLEXT", "bundle");
@@ -304,14 +304,6 @@ public class RbConfigLibrary implements Library {
         String libext = "a";
         String objext = "o";
         
-        // override our values with environment varilabes, since presumably
-        // the user knows what they are doing
-        cflags = getRubyEnv(envHash, "CFLAGS", cflags);
-        cppflags = getRubyEnv(envHash, "CPPFLAGS", cppflags);
-        cxxflags = getRubyEnv(envHash, "CXXFLAGS", cxxflags);
-        ldflags = getRubyEnv(envHash, "LDFLAGS", ldflags);
-        dldflags = getRubyEnv(envHash, "DLDFLAGS", dldflags);
-                
         setConfig(mkmfHash, "configure_args", "");
         setConfig(mkmfHash, "CFLAGS", cflags);
         setConfig(mkmfHash, "CPPFLAGS", cppflags);

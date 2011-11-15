@@ -1,13 +1,11 @@
 package org.jruby.compiler.ir.instructions;
 
-import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.MethAddr;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.CallType;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
@@ -43,6 +41,14 @@ public class CallInstr extends CallBase implements ResultInstr {
         return result;
     }
 
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
+    public Instr discardResult() {
+        return new NoResultCallInstr(getOperation(), getCallType(), getMethodAddr(), getReceiver(), getCallArgs(), closure);
+    }
+
     public Instr cloneForInlining(InlinerInfo ii) {
         return new CallInstr(getCallType(), ii.getRenamedVariable(result), 
                 (MethAddr) getMethodAddr().cloneForInlining(ii), 
@@ -50,16 +56,16 @@ public class CallInstr extends CallBase implements ResultInstr {
                 closure == null ? null : closure.cloneForInlining(ii));
    }
 
-    @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
-        IRubyObject object = (IRubyObject) getReceiver().retrieve(interp, context, self);
-        result.store(interp, context, self, callAdapter.call(interp, context, self, object));
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+        IRubyObject object = (IRubyObject) getReceiver().retrieve(context, self, temp);
+        Object callResult = callAdapter.call(context, self, object, temp);
+        result.store(context, self, temp, callResult);
         return null;
     }
 
     @Override
     public String toString() {
-        return "" + result + " = " + super.toString();
+        return "" + result + (hasUnusedResult() ? "[DEAD-RESULT]" : "") + " = " + super.toString();
     }
     
     

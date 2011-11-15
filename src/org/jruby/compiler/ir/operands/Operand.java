@@ -5,7 +5,6 @@ import java.util.Map;
 import org.jruby.compiler.ir.IRClass;
 import org.jruby.compiler.ir.Interp;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -38,7 +37,7 @@ public abstract class Operand {
     // Note that b,c,d are all compound objects, and c has a reference to objects a and b, and d has a reference to c.
     // So, if contents of b is modified, the "simplified value"s of c and d also change!  This difference
     // is captured by these two methods.
-    public Operand getSimplifiedOperand(Map<Operand, Operand> valueMap) {
+    public Operand getSimplifiedOperand(Map<Operand, Operand> valueMap, boolean force) {
         return this;
     }
 
@@ -56,20 +55,22 @@ public abstract class Operand {
         return null;
     }
 
-    /** Append the list of variables used in this operand to the input list */
-    public void addUsedVariables(List<Variable> l) { /* Nothing to do by default */ }
+    /** Append the list of variables used in this operand to the input list -- force every operand
+     *  to implement this because a missing implementation can cause bad failures.
+     */
+    public abstract void addUsedVariables(List<Variable> l);
 
     public Operand cloneForInlining(InlinerInfo ii) {
         return this;
     }
 
     @Interp
-    public Object retrieve(InterpreterContext interp, ThreadContext context, IRubyObject self) {
+    public Object retrieve(ThreadContext context, IRubyObject self, Object[] temp) {
         throw new RuntimeException(this.getClass().getSimpleName() + " should not be directly retrieved.");
     }
 
     @Interp
-    public Object store(InterpreterContext interp, ThreadContext context, IRubyObject self, Object value) {
+    public Object store(ThreadContext context, IRubyObject self, Object[] temp, Object value) {
         throw new RuntimeException(this.getClass().getSimpleName() + " should not be directly stored.");
     }
 }

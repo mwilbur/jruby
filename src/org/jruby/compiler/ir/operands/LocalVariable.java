@@ -5,7 +5,6 @@
 
 package org.jruby.compiler.ir.operands;
 
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -48,7 +47,7 @@ public class LocalVariable extends Variable {
     }
 
     public boolean isSelf() {
-		  return false;
+        return false;
     }
 
     @Override
@@ -66,14 +65,14 @@ public class LocalVariable extends Variable {
     }
 
     @Override
-    public Object retrieve(InterpreterContext interp, ThreadContext context, IRubyObject self) {
+    public Object retrieve(ThreadContext context, IRubyObject self, Object[] temp) {
         IRubyObject value = context.getCurrentScope().getValue(offset, scopeDepth);
         if (value == null) value = context.getRuntime().getNil();
         return value;
     }
 
     @Override
-    public Object store(InterpreterContext interp, ThreadContext context, IRubyObject self, Object value) {
+    public Object store(ThreadContext context, IRubyObject self, Object[] temp, Object value) {
         return context.getCurrentScope().setValue((IRubyObject) value, offset, scopeDepth);
     }
 

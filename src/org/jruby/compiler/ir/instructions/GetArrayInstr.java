@@ -3,13 +3,11 @@ package org.jruby.compiler.ir.instructions;
 import java.util.Map;
 import org.jruby.RubyArray;
 
-import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.Operation;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -25,7 +23,7 @@ public class GetArrayInstr extends Instr implements ResultInstr {
     private Operand array;
     private final int index;
     private final boolean all;  // If true, returns the rest of the array starting at the index
-    private final Variable result;
+    private Variable result;
 
     public GetArrayInstr(Variable result, Operand array, int index, boolean getRestOfArray) {
         super(Operation.GET_ARRAY);
@@ -46,9 +44,13 @@ public class GetArrayInstr extends Instr implements ResultInstr {
         return result;
     }
 
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        array = array.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        array = array.getSimplifiedOperand(valueMap, force);
     }
 
     @Override
@@ -58,7 +60,7 @@ public class GetArrayInstr extends Instr implements ResultInstr {
 
     @Override
     public Operand simplifyAndGetResult(Map<Operand, Operand> valueMap) {
-        simplifyOperands(valueMap);
+        simplifyOperands(valueMap, false);
         Operand val = array.getValue(valueMap);
         return val.fetchCompileTimeArrayElement(index, all);
     }
@@ -69,9 +71,9 @@ public class GetArrayInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
         // ENEBO: Can I assume since IR figured this is an internal array it will be RubyArray like this?
-        RubyArray rubyArray = (RubyArray) array.retrieve(interp, context, self);
+        RubyArray rubyArray = (RubyArray) array.retrieve(context, self, temp);
         Object val;
         
         if (!all) {
@@ -86,7 +88,7 @@ public class GetArrayInstr extends Instr implements ResultInstr {
                 val = RubyArray.newArrayNoCopy(context.getRuntime(), rubyArray.toJavaArray(), index);
             }
         }
-        result.store(interp, context, self, val);
+        result.store(context, self, temp, val);
         return null;
     }
 }

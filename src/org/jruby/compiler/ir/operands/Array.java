@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Map;
 
 import org.jruby.compiler.ir.IRClass;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -35,7 +34,7 @@ public class Array extends Operand {
 
     @Override
     public String toString() {
-        return "Array:" + (isBlank() ? "" : java.util.Arrays.toString(elts));
+        return "Array:" + (isBlank() ? "[]" : java.util.Arrays.toString(elts));
     }
 
 // ---------- These methods below are used during compile-time optimizations ------- 
@@ -54,9 +53,9 @@ public class Array extends Operand {
     }
 
     @Override
-    public Operand getSimplifiedOperand(Map<Operand, Operand> valueMap) {
+    public Operand getSimplifiedOperand(Map<Operand, Operand> valueMap, boolean force) {
         for (int i = 0; i < elts.length; i++) {
-            elts[i] = elts[i].getSimplifiedOperand(valueMap);
+            elts[i] = elts[i].getSimplifiedOperand(valueMap, force);
         }
 
         return this;
@@ -106,11 +105,11 @@ public class Array extends Operand {
     }
 
     @Override
-    public Object retrieve(InterpreterContext interp, ThreadContext context, IRubyObject self) {
+    public Object retrieve(ThreadContext context, IRubyObject self, Object[] temp) {
         IRubyObject[] elements = new IRubyObject[elts.length];
 
         for (int i = 0; i < elements.length; i++) {
-            elements[i] = (IRubyObject) elts[i].retrieve(interp, context, self);
+            elements[i] = (IRubyObject) elts[i].retrieve(context, self, temp);
         }
 
         return context.getRuntime().newArray(elements);

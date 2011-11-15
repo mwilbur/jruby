@@ -2,14 +2,13 @@ package org.jruby.compiler.ir.instructions;
 
 import java.util.Map;
 import org.jruby.compiler.ir.Operation;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.IRMethod;
 import org.jruby.compiler.ir.operands.LocalVariable;
 import org.jruby.compiler.ir.operands.UndefinedValue;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
@@ -38,8 +37,8 @@ public class StoreToBindingInstr extends Instr {
     }
 
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        value = value.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        value = value.getSimplifiedOperand(valueMap, force);
     }
 
     @Override
@@ -52,7 +51,7 @@ public class StoreToBindingInstr extends Instr {
     }
 
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
         LocalVariable v = (LocalVariable) value;
         
         if (bindingSlot == -1) bindingSlot = targetMethod.getBindingSlot(v.getName());

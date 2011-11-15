@@ -2,13 +2,11 @@ package org.jruby.compiler.ir.instructions;
 
 import org.jruby.compiler.ir.Interp;
 import org.jruby.compiler.ir.Operation;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.RubyArray;
-import org.jruby.compiler.ir.IRExecutionScope;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -42,6 +40,10 @@ public class ReceiveClosureArgInstr extends Instr implements ResultInstr {
         return result;
     }    
 
+    public void updateResult(Variable v) {
+        this.result = v;
+    }
+
     @Override
     public String toString() {
         return super.toString() + "(" + argIndex + (restOfArgArray ? ", ALL" : "") + ")";
@@ -57,9 +59,9 @@ public class ReceiveClosureArgInstr extends Instr implements ResultInstr {
 
     @Interp
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
         Object o;
-        int numArgs = interp.getParameterCount();
+        int numArgs = args.length;
         if (restOfArgArray) {
             if (numArgs < argIndex) {
                 o = RubyArray.newArrayNoCopy(context.getRuntime(), new IRubyObject[] {});
@@ -67,15 +69,15 @@ public class ReceiveClosureArgInstr extends Instr implements ResultInstr {
                 IRubyObject[] restOfArgs = new IRubyObject[numArgs-argIndex];
                 int j = 0;
                 for (int i = argIndex; i < numArgs; i++) {
-                    restOfArgs[j] = (IRubyObject)interp.getParameter(i);
+                    restOfArgs[j] = args[i];
                     j++;
                 }
                 o = RubyArray.newArray(context.getRuntime(), restOfArgs);
             }
         } else {
-            o = (argIndex < numArgs) ? interp.getParameter(argIndex) : context.getRuntime().getNil();
+            o = (argIndex < numArgs) ? args[argIndex] : context.getRuntime().getNil();
         }
-        result.store(interp, context, self, o);
+        result.store(context, self, temp, o);
         return null;
     }
 }

@@ -6,14 +6,12 @@ import org.jruby.RubyObject;
 import org.jruby.RubyFixnum;
 import org.jruby.RubyClass;
 import org.jruby.RubySymbol;
-import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.IRMethod;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.internal.runtime.methods.InterpretedIRMethod;
-import org.jruby.interpreter.InterpreterContext;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.Visibility;
 import org.jruby.runtime.builtin.IRubyObject;
@@ -46,10 +44,10 @@ public class DefineClassMethodInstr extends Instr {
 
     // SSS FIXME: Go through this and DefineInstanceMethodInstr.interpret, clean up, extract common code
     @Override
-    public Label interpret(InterpreterContext interp, IRExecutionScope scope, ThreadContext context, IRubyObject self, org.jruby.runtime.Block block) {
+    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
         String name = method.getName();
         Ruby runtime = context.getRuntime();
-        RubyObject obj = (RubyObject) container.retrieve(interp, context, self);
+        RubyObject obj = (RubyObject) container.retrieve(context, self, temp);
 
         if (runtime.getSafeLevel() >= 4 && !obj.isTaint()) {
             throw runtime.newSecurityError("Insecure; can't define singleton method.");
@@ -76,7 +74,7 @@ public class DefineClassMethodInstr extends Instr {
     }
 
     @Override
-    public void simplifyOperands(Map<Operand, Operand> valueMap) {
-        container = container.getSimplifiedOperand(valueMap);
+    public void simplifyOperands(Map<Operand, Operand> valueMap, boolean force) {
+        container = container.getSimplifiedOperand(valueMap, force);
     }
 }

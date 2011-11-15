@@ -7,7 +7,6 @@ import java.util.ArrayList;
 import java.util.Map;
 import org.jruby.RubyBasicObject;
 import org.jruby.RubyString;
-import org.jruby.interpreter.InterpreterContext;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -43,10 +42,10 @@ public class BacktickString extends Operand {
     }
 
     @Override
-    public Operand getSimplifiedOperand(Map<Operand, Operand> valueMap) {
+    public Operand getSimplifiedOperand(Map<Operand, Operand> valueMap, boolean force) {
         int i = 0;
         for (Operand p : pieces) {
-            pieces.set(i, p.getSimplifiedOperand(valueMap));
+            pieces.set(i, p.getSimplifiedOperand(valueMap, force));
             i++;
         }
 
@@ -74,11 +73,11 @@ public class BacktickString extends Operand {
     }
 
     @Override
-    public Object retrieve(InterpreterContext interp, ThreadContext context, IRubyObject self) {
+    public Object retrieve(ThreadContext context, IRubyObject self, Object[] temp) {
         RubyString newString = context.getRuntime().newString();
 
         for (Operand p: pieces) {
-            RubyBasicObject piece = (RubyBasicObject) p.retrieve(interp, context, self);
+            RubyBasicObject piece = (RubyBasicObject) p.retrieve(context, self, temp);
             newString.append((piece instanceof RubyString) ? (RubyString)piece : piece.to_s());
         }
         
