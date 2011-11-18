@@ -1915,6 +1915,7 @@ public class RubyIO extends RubyObject {
             newFile.setMainStream(ChannelStream.fdopen(runtime, descriptor, modes));
 
             newFile.getMainStream().setSync(originalFile.getMainStreamSafe().isSync());
+            if (originalFile.getMainStreamSafe().isBinmode()) newFile.getMainStream().setBinmode();
             
             // TODO: the rest of this...seeking to same position is unnecessary since we share a channel
             // but some of this may be needed?
@@ -2308,6 +2309,35 @@ public class RubyIO extends RubyObject {
         } finally {
             context.getRuntime().unregisterInspecting(array);
         }
+    }
+    
+    @Override
+    public IRubyObject inspect() {
+        Ruby runtime = getRuntime();
+        
+        if (!runtime.is1_9()) return super.inspect();
+        OpenFile openFile = getOpenFile();
+        if (openFile == null) return super.inspect();
+        
+        Stream stream = openFile.getMainStream();
+        String className = getMetaClass().getRealClass().getName();
+        String path = openFile.getPath();
+        String status = "";
+        
+        if (path == null) {
+            if (stream == null) {
+                path = "";
+                status = "(closed)";
+            } else {
+                path = "fd " + runtime.getFileno(stream.getDescriptor());
+            }
+        } else if (!openFile.isOpen()) {
+            status = " (closed)";
+        }
+        
+        String inspectStr = "#<" + className + ":" + path + status + ">";
+        
+        return runtime.newString(inspectStr);
     }
 
     /** Read a line.
@@ -3776,6 +3806,12 @@ public class RubyIO extends RubyObject {
                 new RubyIO(runtime, process.getError()) :
                 new RubyIO(runtime, process.getErrorStream());
 
+            // ensure the OpenFile knows it's a process; see OpenFile#finalize
+            input.getOpenFile().setProcess(process);
+            output.getOpenFile().setProcess(process);
+            error.getOpenFile().setProcess(process);
+            
+            // process streams are not seekable
             input.getOpenFile().getMainStreamSafe().getDescriptor().
               setCanBeSeekable(false);
             output.getOpenFile().getMainStreamSafe().getDescriptor().
@@ -4183,9 +4219,10 @@ public class RubyIO extends RubyObject {
         Object waitLock = new Object();
         while (true) {
             // only try 1000 times with a 1ms sleep between, so we don't hang
-            // forever on processes that ignore SIGTERM
+            // forever on processes that ignore SIGTERM. After that, not much
+            // we can do...
             if (i >= 1000) {
-                throw new RuntimeException("could not shut down process: " + process);
+                return;
             }
 
             // attempt to destroy (SIGTERM on UNIX, TerminateProcess on Windows)
