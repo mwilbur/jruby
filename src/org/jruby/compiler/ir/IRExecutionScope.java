@@ -16,6 +16,7 @@ import org.jruby.compiler.ir.instructions.CallBase;
 import org.jruby.compiler.ir.instructions.CopyInstr;
 import org.jruby.compiler.ir.instructions.Instr;
 import org.jruby.compiler.ir.instructions.ReceiveClosureInstr;
+import org.jruby.compiler.ir.instructions.ReceiveSelfInstruction;
 import org.jruby.compiler.ir.instructions.ResultInstr;
 import org.jruby.compiler.ir.instructions.SuperInstr;
 import org.jruby.compiler.ir.operands.Label;
@@ -41,6 +42,7 @@ public abstract class IRExecutionScope extends IRScopeImpl {
     private List<IRClosure> closures;     // List of (nested) closures in this scope
     private Set<Variable> definedLocalVars;   // Local variables defined in this scope
     private Set<Variable> usedLocalVars;      // Local variables used in this scope    
+    private boolean hasUnusedImplicitBlockArg = false; // Is %block implicit block arg unused?
     private Map<String, DataFlowProblem> dfProbs = new HashMap<String, DataFlowProblem>();       // Map of name -> dataflow problem    
     private Instr[] instrs = null;
     List<BasicBlock> linearizedBBList = null;  // Linearized list of bbs
@@ -433,6 +435,10 @@ public abstract class IRExecutionScope extends IRScopeImpl {
 
     public abstract LocalVariable getImplicitBlockArg();
 
+    public void markUnusedImplicitBlockArg() {
+        hasUnusedImplicitBlockArg = true;
+    }
+
     public abstract LocalVariable findExistingLocalVariable(String name);
 
     public abstract LocalVariable getLocalVariable(String name, int depth);
@@ -448,7 +454,7 @@ public abstract class IRExecutionScope extends IRScopeImpl {
     public int getUsedVariablesCount() {
         // System.out.println("For " + this + ", # lvs: " + nextLocalVariableSlot);
         // %block, # local vars, # flip vars
-        return 1 + localVars.nextSlot + getPrefixCountSize("%flip");
+        return (hasUnusedImplicitBlockArg ? 0 : 1) + localVars.nextSlot + getPrefixCountSize("%flip");
     }
     
     public void setUpUseDefLocalVarMaps() {
@@ -517,10 +523,6 @@ public abstract class IRExecutionScope extends IRScopeImpl {
             throw e;
         }
 
-        // Set up a bb array that maps labels to targets -- just to make sure old code continues to work! 
-        // ENEBO: Currently unused
-        // setupFallThruMap();
-
         // Set up IPCs
         HashMap<Label, Integer> labelIPCMap = new HashMap<Label, Integer>();
         List<Label> labelsToFixup = new ArrayList<Label>();
@@ -530,8 +532,10 @@ public abstract class IRExecutionScope extends IRScopeImpl {
             labelIPCMap.put(b.getLabel(), ipc);
             labelsToFixup.add(b.getLabel());
             for (Instr i : b.getInstrs()) {
-                newInstrs.add(i);
-                ipc++;
+                if (!(i instanceof ReceiveSelfInstruction)) {
+                    newInstrs.add(i);
+                    ipc++;
+                }
             }
         }
 

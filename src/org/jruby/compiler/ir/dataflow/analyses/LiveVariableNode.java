@@ -1,14 +1,16 @@
 package org.jruby.compiler.ir.dataflow.analyses;
 
 import org.jruby.compiler.ir.IRClosure;
+import org.jruby.compiler.ir.dataflow.DataFlowConstants;
 import org.jruby.compiler.ir.dataflow.DataFlowProblem;
 import org.jruby.compiler.ir.dataflow.DataFlowVar;
 import org.jruby.compiler.ir.dataflow.FlowGraphNode;
 import org.jruby.compiler.ir.instructions.CallBase;
 import org.jruby.compiler.ir.instructions.Instr;
+import org.jruby.compiler.ir.operands.LocalVariable;
 import org.jruby.compiler.ir.operands.Operand;
-import org.jruby.compiler.ir.operands.WrappedIRClosure;
 import org.jruby.compiler.ir.operands.Variable;
+import org.jruby.compiler.ir.operands.WrappedIRClosure;
 import org.jruby.compiler.ir.representations.BasicBlock;
 
 import java.util.Collection;
@@ -33,11 +35,11 @@ public class LiveVariableNode extends FlowGraphNode {
     private void addDFVar(Variable v) {
         LiveVariablesProblem lvp = (LiveVariablesProblem) problem;
         if (!lvp.dfVarExists(v)) lvp.addDFVar(v);
-//        System.out.println("Adding df var for " + v + ":" + lvp.getDFVar(v).id);
+        // System.out.println("Adding df var for " + v + ":" + lvp.getDFVar(v).id);
     }
 
     public void buildDataFlowVars(Instr i) {
-//        System.out.println("BV: Processing: " + i);        
+        // System.out.println("BV: Processing: " + i);        
         if (i instanceof ResultInstr) addDFVar(((ResultInstr) i).getResult());
 
         for (Variable x: i.getUsedVariables()) {
@@ -51,7 +53,7 @@ public class LiveVariableNode extends FlowGraphNode {
         in = new BitSet(setSize);
         
         if (basicBlock == p.getScope().cfg().getExitBB()) {
-            Collection<Variable> lv = p.getVarsLiveOnExit();
+            Collection<LocalVariable> lv = p.getVarsLiveOnScopeExit();
             if (lv != null && !lv.isEmpty()) {
                 for (Variable v: lv) {
                     in.set(p.getDFVar(v).getId());
@@ -61,108 +63,136 @@ public class LiveVariableNode extends FlowGraphNode {
     }
 
     public void compute_MEET(BasicBlock source, FlowGraphNode pred) {
-//      System.out.println("computing meet for BB " + basicBlock.getID() + " with BB " + ((LiveVariableNode)pred).basicBlock.getID());
+        // System.out.println("computing meet for BB " + basicBlock.getID() + " with BB " + ((LiveVariableNode)pred).basicBlock.getID());
         // All variables live at the entry of 'pred' are also live at exit of this node
         in.or(((LiveVariableNode) pred).out);
     }
 
-    private LiveVariablesProblem processClosure(IRClosure cl, Collection<Variable> liveOnEntry) {
-        LiveVariablesProblem lvp = new LiveVariablesProblem();
-        lvp.initVarsLiveOnExit(liveOnEntry);
-        lvp.setup(cl);
-        lvp.compute_MOP_Solution();
-        cl.setDataFlowSolution(lvp.getName(), lvp);
-
-        return lvp;
+    private void processClosureLVP(LiveVariablesProblem cl_lvp, Collection<LocalVariable> varsLiveOnScopeExit) {
     }
 
     public boolean applyTransferFunction() {
         LiveVariablesProblem lvp = (LiveVariablesProblem) problem;
 
         tmp = (BitSet) in.clone();
-//         System.out.println("Apply TF for BB " + basicBlock.getID());
-//         System.out.println("After MEET, df state is:\n" + toString());
+         // System.out.println("Apply TF for BB " + basicBlock.getID());
+         // System.out.println("After MEET, df state is:\n" + toString());
 
         // Traverse the instructions in this basic block in reverse order!
         List<Instr> instrs = basicBlock.getInstrs();
         ListIterator<Instr> it = instrs.listIterator(instrs.size());
         while (it.hasPrevious()) {
             Instr i = it.previous();
-//            System.out.println("TF: Processing: " + i);
+            // System.out.println("TF: Processing: " + i);
 
             // v is defined => It is no longer live before 'i'
             if (i instanceof ResultInstr) {
                 Variable v = ((ResultInstr) i).getResult();
                 tmp.clear(lvp.getDFVar(v).getId());
-//                System.out.println("cleared live flag for: " + v);
             }
 
             // Check if 'i' is a call and uses a closure!
             // If so, we need to process the closure for live variable info.
             if (i instanceof CallBase) {
                 CallBase c = (CallBase) i;
-                // SSS FIXME: This relies on the local opt. pass having run already
-                // so that the built closure from the previous instr. is propagated to the call site here.
-                // Formalize this dependency somewhere?
-                Operand o = c.getClosureArg();
-//                   System.out.println("Processing closure: " + o + "-------");
+                Operand  o = c.getClosureArg();
+                // System.out.println("Processing closure: " + o + "-------");
                 if ((o != null) && (o instanceof WrappedIRClosure)) {
                     IRClosure cl = ((WrappedIRClosure)o).getClosure();
-                    if (c.isDataflowBarrier()) {
-                        processClosure(cl, lvp.getAllVars());
-
-//                        System.out.println(".. call is a data flow barrier ..");
-                        // Mark all non-self local variables live if 'c' is a dataflow barrier!
-                        for (Variable x: lvp.getNonSelfLocalVars()) tmp.set(lvp.getDFVar(x).getId());
-                    } else {
-                        // Propagate current LVA state through the closure
-                        // SSS FIXME: Think through this .. Is there any way out of having
-                        // to recompute the entire lva for the closure each time through?
-
-                        // Collect variables live at this point.
-                        Set<Variable> liveVars = new HashSet<Variable>();
-                        for (int j = 0; j < tmp.size(); j++) {
-                            if (tmp.get(j) == true) {
-//                                System.out.println(lvp.getVariable(j) + " is live on exit of closure!");
-                                liveVars.add(lvp.getVariable(j));
-                            }
-                        }
-//                        System.out.println(" .. collected live on exit ..");
-
-                        // Collect variables live out of the exception target node.  Since this call can directly jump to
-                        // the rescue block (or scope exit) without executing the rest of the instructions in this bb, we
-                        // have a control-flow edge from this call to that block.  Since we dont want to add a
-                        // control-flow edge from pretty much very call to the rescuer/exit BB, we are handling it
-                        // implicitly here.
-                        if (c.canRaiseException()) {
-                            BitSet etOut = ((LiveVariableNode)getExceptionTargetNode()).out;
-                            for (int k = 0; k < etOut.size(); k++) {
-                                if (etOut.get(k) == true) liveVars.add(lvp.getVariable(k));
-                            }
-                        }
-                        // Run LVA on the closure
-                        LiveVariablesProblem xlvp = processClosure(cl, liveVars);
-
-//                        System.out.println("------- done with closure" + o);
-
-                        // Collect variables live on entry of the closure and merge that info into the current problem.
-                        for (Variable y: xlvp.getVarsLiveOnEntry()) {
-                            DataFlowVar dv = lvp.getDFVar(y);
-                            // This can be null for vars used, but not defined!  Yes, the source program is buggy ..
-                            if (dv != null) {
-//                                System.out.println(y + " is live on entry of the closure!");
-                                tmp.set(dv.getId());
-                            }
-                        } 
+                    LiveVariablesProblem cl_lvp = (LiveVariablesProblem)cl.getDataFlowSolution(DataFlowConstants.LVP_NAME);
+                    if (cl_lvp == null) {
+                        cl_lvp = new LiveVariablesProblem();
+                        cl_lvp.setup(cl, lvp.getNonSelfLocalVars());
+                        cl.setDataFlowSolution(cl_lvp.getName(), cl_lvp);
                     }
-                } else if (c.isDataflowBarrier()) {
-//                    System.out.println(".. call is a data flow barrier ..");
-                     // Mark all non-self local variables live if 'c' is a dataflow barrier!
+
+                    // Collect live local variables at this point.
+                    Set<LocalVariable> liveVars = new HashSet<LocalVariable>();
+                    for (int j = 0; j < tmp.size(); j++) {
+                        if (tmp.get(j) == true) {
+                            Variable v = lvp.getVariable(j);
+                            if (v instanceof LocalVariable) liveVars.add((LocalVariable)v);
+                        }
+                    }
+
+                    // Collect variables live on entry of the closure -- they could all be live on exit as well (conservative, but safe).
+                    //
+                    //   def foo
+                    //     i = 0; 
+                    //     loop { i += 1; break if i > n }
+                    //   end 
+                    //
+                    // Here, i is not live outside the closure, but it is clearly live on exit of the closure because
+                    // it is reused on the next iteration.  In the absence of information about the call accepting the closure,
+                    // we have to assume that all vars live on exit from the closure will be live on entry into the closure as well
+                    // because of looping.
+                    List<Variable> liveOnEntryBefore = cl_lvp.getVarsLiveOnScopeEntry();
+                    for (Variable y: liveOnEntryBefore) {
+                        if (y instanceof LocalVariable) liveVars.add((LocalVariable)y);
+                    } 
+
+                    // Collect variables live out of the exception target node.  Since this call can directly jump to
+                    // the rescue block (or scope exit) without executing the rest of the instructions in this bb, we
+                    // have a control-flow edge from this call to that block.  Since we dont want to add a
+                    // control-flow edge from pretty much every call to the rescuer/exit BB, we are handling it
+                    // implicitly here.
+                    if (c.canRaiseException()) {
+                        BitSet etOut = ((LiveVariableNode)getExceptionTargetNode()).out;
+                        for (int k = 0; k < etOut.size(); k++) {
+                            if (etOut.get(k) == true) {
+                                Variable v = lvp.getVariable(k);
+                                if (v instanceof LocalVariable) liveVars.add((LocalVariable)v);
+                            }
+                        }
+                    }
+
+                    // Run LVA on the closure to propagate current LVA state through the closure
+                    // SSS FIXME: Think through this .. Is there any way out of having
+                    // to recompute the entire lva for the closure each time through?
+                    cl_lvp.setVarsLiveOnScopeExit(liveVars);
+                    cl_lvp.compute_MOP_Solution();
+
+                    // Check if liveOnScopeEntry added new vars -- if so, rerun.
+                    // NOTE: This is conservative since we are not checking if some vars got deleted.
+                    // But, this conservativeness guarantees forward progress of the analysis.
+                    boolean changed;
+                    List<Variable> liveOnEntryAfter;
+                    do { 
+                        changed = false;
+                        liveOnEntryAfter = cl_lvp.getVarsLiveOnScopeEntry();
+                        for (Variable y: liveOnEntryAfter) {
+                            if (y instanceof LocalVariable) {
+                                LocalVariable ly = (LocalVariable)y;
+                                if (!liveVars.contains(ly)) {
+                                    changed = true;
+                                    liveVars.add(ly);
+                                }
+                            }
+                        }
+
+                        if (changed) {
+                            cl_lvp.setVarsLiveOnScopeExit(liveVars);
+                            cl_lvp.compute_MOP_Solution();
+                        }
+                    } while (changed);
+
+                    // Merge live on closure entry info into the current problem.
+                    for (Variable y: liveOnEntryAfter) {
+                        DataFlowVar dv = lvp.getDFVar(y);
+                        // This can be null for vars used, but not defined!  Yes, the source program is buggy ..
+                        if (dv != null) tmp.set(dv.getId());
+                    }
+                }
+
+                // If this is a dataflow barrier -- mark all local vars but %self and %block live
+                if (c.isDataflowBarrier()) {
+                    // System.out.println(".. call is a data flow barrier ..");
+                    // Mark all non-self, non-block local variables live if 'c' is a dataflow barrier!
                     for (Variable x: lvp.getNonSelfLocalVars()) {
-                        tmp.set(lvp.getDFVar(x).getId());
+                        if (!x.isImplicitBlockArg()) tmp.set(lvp.getDFVar(x).getId());
                     }
                 } else if (c.canRaiseException()) {
-//                    System.out.println(".. can raise exception ..");
+                    // System.out.println(".. can raise exception ..");
                     // Collect variables live out of the exception target node.  Since this call can directly jump to
                     // the rescue block (or scope exit) without executing the rest of the instructions in this bb, we
                     // have a control-flow edge from this call to that block.  Since we dont want to add a
@@ -170,10 +200,7 @@ public class LiveVariableNode extends FlowGraphNode {
                     // implicitly here.
                     BitSet etOut = ((LiveVariableNode)getExceptionTargetNode()).out;
                     for (int k = 0; k < etOut.size(); k++) {
-                        if (etOut.get(k) == true) { 
-                            tmp.set(k); 
-//                            System.out.println("marking var live: " + lvp.getVariable(k)); 
-                         }
+                        if (etOut.get(k) == true) tmp.set(k); 
                     }
                 }
             }
@@ -184,10 +211,12 @@ public class LiveVariableNode extends FlowGraphNode {
                 // This can be null for vars used, but not defined!  Yes, the source program is buggy ..
                 if (dv != null) {
                     tmp.set(dv.getId());
-//                    System.out.println("set live flag for: " + x);
+                    // System.out.println("set live flag for: " + x);
                 }
             }
         }
+
+        // System.out.println("After TF, df state is:\n" + toString());
 
         if (tmp.equals(out)) { // OUT is the same!
             return false;
@@ -229,7 +258,7 @@ public class LiveVariableNode extends FlowGraphNode {
 
 /* ---------- Protected / package fields, methods --------- */
     void markDeadInstructions() {
-//        System.out.println("dead processing for " + basicBlock.getID());
+        // System.out.println("-- Identifying dead instructions for " + basicBlock.getID() + " -- ");
         LiveVariablesProblem lvp = (LiveVariablesProblem) problem;
 
         if (in == null) {
@@ -251,58 +280,56 @@ public class LiveVariableNode extends FlowGraphNode {
         ListIterator<Instr> it = instrs.listIterator(instrs.size());
         while (it.hasPrevious()) {
             Instr i = it.previous();
-//            System.out.println("DEAD?? " + i);
+            // System.out.println("DEAD?? " + i);
             if (i instanceof ResultInstr) {
                 Variable v = ((ResultInstr) i).getResult();
                 DataFlowVar dv = lvp.getDFVar(v);
                     // If 'v' is not live at the instruction site, and it has no side effects, mark it dead!
-                if ((tmp.get(dv.getId()) == false) && !i.hasSideEffects() && !i.getOperation().isDebugOp()) {
-//                    System.out.println("YES!");
+                // System.out.println("df var for " + v + " is " + dv.getId());
+                if ((tmp.get(dv.getId()) == false) && i.canBeDeleted()) {
+                    // System.out.println("YES!");
                     i.markDead();
                     it.remove();
+                    if (v.isImplicitBlockArg()) lvp.getScope().markUnusedImplicitBlockArg();
                 } else if (tmp.get(dv.getId()) == false) {
-//                    System.out.println("NO!  has side effects! Op is: " + i.getOperation());
+                    // System.out.println("NO! has side effects! Op is: " + i.getOperation());
                 } else {
-//                    System.out.println("NO! LIVE result:" + v);
+                    // System.out.println("NO! LIVE result:" + v);
                     tmp.clear(dv.getId());
                 }
-            } else if (!i.hasSideEffects() && !i.getOperation().isDebugOp() && !i.transfersControl()) {
+            } else if (i.canBeDeleted()) {
                  i.markDead();
                  it.remove();
             } else {
-//                System.out.println("IGNORING! No result!");
+                // System.out.println("IGNORING! No result!");
             }
 
             if (i instanceof CallBase) {
                 CallBase c = (CallBase) i;
-                if (c.isDataflowBarrier()) {
-                    // Mark all non-self local variables live if 'c' is a dataflow barrier!
+                Operand  o = c.getClosureArg();
+                if ((o != null) && (o instanceof WrappedIRClosure)) {
+                    IRClosure cl = ((WrappedIRClosure)o).getClosure();
+                    LiveVariablesProblem cl_lvp = (LiveVariablesProblem)cl.getDataFlowSolution(lvp.getName());
+                    // Collect variables live on entry and merge that info into the current problem.
+                    for (Variable y: cl_lvp.getVarsLiveOnScopeEntry()) {
+                        DataFlowVar dv = lvp.getDFVar(y);
+                        // This can be null for vars used, but not defined!  Yes, the source program is buggy ..
+                        if (dv != null) tmp.set(dv.getId());
+                    } 
+                } else if (c.isDataflowBarrier()) {
+                    // Mark all non-self, non-block local variables live if 'c' is a dataflow barrier!
                     for (Variable x: lvp.getNonSelfLocalVars()) {
-                        tmp.set(lvp.getDFVar(x).getId());
+                        if (!x.isImplicitBlockArg()) tmp.set(lvp.getDFVar(x).getId());
                     }
-                } else {
-                    if (c.canRaiseException()) {
-                        // Collect variables live out of the exception target node.  Since this call can directly jump to
-                        // the rescue block (or scope exit) without executing the rest of the instructions in this bb, we
-                        // have a control-flow edge from this call to that block.  Since we dont want to add a
-                        // control-flow edge from pretty much very call to the rescuer/exit BB, we are handling it
-                        // implicitly here.
-                        BitSet etOut = ((LiveVariableNode)getExceptionTargetNode()).out;
-                        for (int k = 0; k < etOut.size(); k++) {
-                            if (etOut.get(k) == true) tmp.set(k);
-                        }
-                    }
-
-                    Operand o = c.getClosureArg();
-                    if ((o != null) && (o instanceof WrappedIRClosure)) {
-                        IRClosure cl = ((WrappedIRClosure)o).getClosure();
-                        LiveVariablesProblem xlvp = (LiveVariablesProblem)cl.getDataFlowSolution(lvp.getName());
-                        // Collect variables live on entry and merge that info into the current problem.
-                        for (Variable y: xlvp.getVarsLiveOnEntry()) {
-                            DataFlowVar dv = lvp.getDFVar(y);
-                            // This can be null for vars used, but not defined!  Yes, the source program is buggy ..
-                            if (dv != null) tmp.set(dv.getId());
-                        } 
+                } else if (c.canRaiseException()) {
+                    // Collect variables live out of the exception target node.  Since this call can directly jump to
+                    // the rescue block (or scope exit) without executing the rest of the instructions in this bb, we
+                    // have a control-flow edge from this call to that block.  Since we dont want to add a
+                    // control-flow edge from pretty much very call to the rescuer/exit BB, we are handling it
+                    // implicitly here.
+                    BitSet etOut = ((LiveVariableNode)getExceptionTargetNode()).out;
+                    for (int k = 0; k < etOut.size(); k++) {
+                        if (etOut.get(k) == true) tmp.set(k);
                     }
                 }
             }
