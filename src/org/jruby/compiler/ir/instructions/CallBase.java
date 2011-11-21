@@ -193,7 +193,19 @@ public abstract class CallBase extends Instr {
         // If the call is an eval, OR if it passes a closure and the callee can capture the caller's binding,
         // we cannot propagate dataflow analysis information across it (in either direction), except where
         // the dataflow analysis has additional information for ignoring this barrier. 
-        return canBeEval() || targetRequiresCallersBinding();
+        //
+        // return canBeEval() || targetRequiresCallersBinding();
+        //
+        // SSS FIXME: For now, force all calls with closures to be dataflow barriers
+        //
+        // return canBeEval() || (closure != null);
+        //
+        // Argh! If the current method has threading code in there, all local variables have effectively escaped
+        // into the new thread which means all calls in this method downstream of the threading code are dataflow
+        // barriers.
+        //
+        // SSS FIXME: For now, force all calls to be dataflow barriers
+        return true;
     }
 
     @Override
