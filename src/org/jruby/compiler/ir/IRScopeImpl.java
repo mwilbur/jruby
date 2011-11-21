@@ -140,8 +140,12 @@ public abstract class IRScopeImpl implements IRScope {
 
     public int getNextClosureId() {
         nextClosureIndex++;
-        
+
         return nextClosureIndex;
+    }
+
+    public void resetTemporaryVariables() {
+        resetVariableCounter("%v");
     }
 
     public Variable getNewTemporaryVariable() {
@@ -185,6 +189,10 @@ public abstract class IRScopeImpl implements IRScope {
         return index;
     }
 
+	 protected void resetVariableCounter(String prefix) {
+        nextVarIndex.remove(prefix);
+	 }
+
     protected int getPrefixCountSize(String prefix) {
         Integer index = nextVarIndex.get(prefix);
 
@@ -195,14 +203,6 @@ public abstract class IRScopeImpl implements IRScope {
 
     public StaticScope getStaticScope() {
         return staticScope;
-    }
-
-    public Instr getLastInstr() {
-        throw new RuntimeException("Encountered instruction getLast in a non-execution scope!");
-    }
-    
-    public void addInstr(Instr i) {
-        throw new RuntimeException("Encountered instruction add in a non-execution scope!");
     }
 
     // Record that newName is a new method name for method with oldName
