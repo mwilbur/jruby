@@ -39,12 +39,12 @@ public enum Operation {
     /** argument receive related in methods and blocks **/
     RECV_SELF(OpFlags.f_is_arg_receive),
     RECV_ARG(OpFlags.f_is_arg_receive),
+    RECV_REST_ARG(OpFlags.f_is_arg_receive),
     RECV_OPT_ARG(OpFlags.f_is_arg_receive),
     RECV_CLOSURE(OpFlags.f_is_arg_receive),
     RECV_CLOSURE_ARG(OpFlags.f_is_arg_receive),
+    RECV_CLOSURE_REST_ARG(OpFlags.f_is_arg_receive),
     RECV_EXCEPTION(OpFlags.f_is_arg_receive),
-    SET_ARGS(OpFlags.f_has_side_effect),
-    RESTORE_ARGS(OpFlags.f_has_side_effect),
 
     /* By default, call instructions cannot be deleted even if their results
      * aren't used by anyone unless we know more about what the call is, 
@@ -88,8 +88,8 @@ public enum Operation {
     FILE_NAME(OpFlags.f_is_debug_op),
 
     /** value loads (SSS FIXME: Do any of these have side effects?) **/
-    GET_CONST(OpFlags.f_is_load),
-    GET_GLOBAL_VAR(OpFlags.f_is_load), 
+    GET_CONST(OpFlags.f_is_load | OpFlags.f_can_raise_exception),
+    GET_GLOBAL_VAR(OpFlags.f_is_load),
     GET_FIELD(OpFlags.f_is_load),
     GET_CVAR(OpFlags.f_is_load | OpFlags.f_can_raise_exception),
     GET_ARRAY(OpFlags.f_is_load),

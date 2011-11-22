@@ -159,7 +159,9 @@ import org.jruby.compiler.ir.instructions.PutFieldInstr;
 import org.jruby.compiler.ir.instructions.PutGlobalVarInstr;
 import org.jruby.compiler.ir.instructions.ReceiveSelfInstruction;
 import org.jruby.compiler.ir.instructions.ReceiveArgumentInstruction;
+import org.jruby.compiler.ir.instructions.ReceiveRestArgInstr;
 import org.jruby.compiler.ir.instructions.ReceiveClosureArgInstr;
+import org.jruby.compiler.ir.instructions.ReceiveClosureRestArgInstr;
 import org.jruby.compiler.ir.instructions.ReceiveClosureInstr;
 import org.jruby.compiler.ir.instructions.ReceiveExceptionInstr;
 import org.jruby.compiler.ir.instructions.ReceiveOptionalArgumentInstr;
@@ -719,9 +721,8 @@ public class IRBuilder {
             // We are in a nested receive situation -- when we are not at the root of a masgn tree
             // Ex: We are trying to receive (b,c) in this example: "|a, (b,c), d| = ..."
             s.addInstr(new GetArrayInstr(v, argsArray, argIndex, isSplat));
-        }
-        else {
-            s.addInstr(isClosureArg ? new ReceiveClosureInstr(v) : new ReceiveClosureArgInstr(v, argIndex, isSplat));
+        } else {
+            s.addInstr(isClosureArg ? new ReceiveClosureInstr(v) : (isSplat ? new ReceiveClosureRestArgInstr(v, argIndex) : new ReceiveClosureArgInstr(v, argIndex)));
         }
     }
 
@@ -1739,6 +1740,9 @@ public class IRBuilder {
         // Build IR for arguments
         receiveArgs(defNode.getArgsNode(), method);
 
+        // Thread poll on entry to method
+        addThreadPollInstrIfNeeded(s);
+
         // Build IR for body
         if (defNode.getBodyNode() != null) {
             Node bodyNode = defNode.getBodyNode();
@@ -1798,7 +1802,7 @@ public class IRBuilder {
         // (b) compiler to bytecode will anyway generate this and this is explicit.
         // For now, we are going explicit instruction route.  But later, perhaps can make this implicit in the method setup preamble?  
         // FIXME: I added getSelf() just so we won't NPE since this is a callinstr. Can we make this something other than callinstr?
-        s.addInstr(new CheckArityInstr(new Fixnum((long)required), new Fixnum((long)opt), new Fixnum((long)rest)));
+        s.addInstr(new CheckArityInstr(required, opt, rest));
 
         // self = args[0]
         s.addInstr(new ReceiveSelfInstruction(getSelf(s)));
@@ -1849,7 +1853,7 @@ public class IRBuilder {
             // So, we generate an implicit arg name
             String argName = argsNode.getRestArgNode().getName();
             argName = (argName.equals("")) ? "%_arg_array" : argName;
-            s.addInstr(new ReceiveArgumentInstruction(s.getLocalVariable(argName, 0), argIndex, true));
+            s.addInstr(new ReceiveRestArgInstr(s.getLocalVariable(argName, 0), argIndex));
         }
 
         // FIXME: Ruby 1.9 post args code needs to come here
@@ -2026,7 +2030,6 @@ public class IRBuilder {
     }
 
     public Operand buildFalse(Node node, IRExecutionScope s) {
-        addThreadPollInstrIfNeeded(s);
         return BooleanLiteral.FALSE; 
     }
 
@@ -2479,7 +2482,6 @@ public class IRBuilder {
 
     public Operand buildNext(final NextNode nextNode, IRExecutionScope s) {
         Operand rv = (nextNode.getValueNode() == null) ? Nil.NIL : build(nextNode.getValueNode(), s);
-        addThreadPollInstrIfNeeded(s); // SSS FIXME: Is the ordering correct? (poll before next)
 
         // If we have ensure blocks, have to run those first!
         if (!_ensureBlockStack.empty()) EnsureBlockInfo.emitJumpChain(s, _ensureBlockStack);
@@ -2487,6 +2489,7 @@ public class IRBuilder {
             // If a regular loop, the next is simply a jump to the end of the iteration
             s.addInstr(new JumpInstr(s.getCurrentLoop().iterEndLabel));
         } else {
+            addThreadPollInstrIfNeeded(s);
             // If a closure, the next is simply a return from the closure!
             if (s instanceof IRClosure) s.addInstr(new ClosureReturnInstr(rv));
             else s.addInstr(new ThrowExceptionInstr(IRException.NEXT_LocalJumpError));
@@ -2504,7 +2507,6 @@ public class IRBuilder {
     }
 
     public Operand buildNil(Node node, IRExecutionScope s) {
-        addThreadPollInstrIfNeeded(s);
         return Nil.NIL;
     }
 
@@ -2777,7 +2779,12 @@ public class IRBuilder {
         // For closures, a redo is a jump to the beginning of the closure
         // For non-closures, a redo is a jump to the beginning of the loop
         if (s instanceof IRClosure) {
-            s.addInstr(new JumpInstr((s.getCurrentLoop() != null) ?  s.getCurrentLoop().iterStartLabel : ((IRClosure)s).startLabel));
+            if (s.getCurrentLoop() != null) {
+                s.addInstr(new JumpInstr(s.getCurrentLoop().iterStartLabel));
+            } else {
+                addThreadPollInstrIfNeeded(s);
+                s.addInstr(new JumpInstr(((IRClosure)s).startLabel));
+            }
         } else {
             s.addInstr(new ThrowExceptionInstr(IRException.REDO_LocalJumpError));
         }
@@ -2934,13 +2941,13 @@ public class IRBuilder {
     public Operand buildRetry(Node node, IRExecutionScope s) {
         // JRuby only supports retry when present in rescue blocks!
         // 1.9 doesn't support retry anywhere else.
-        addThreadPollInstrIfNeeded(s);
         
         // Jump back to the innermost rescue block
         // We either find it, or we add code to throw a runtime exception
         if (_rescueBlockStack.empty()) {
             s.addInstr(new ThrowExceptionInstr(IRException.RETRY_LocalJumpError));
         } else {
+            addThreadPollInstrIfNeeded(s);
             // Restore $! and jump back to the entry of the rescue block
             Tuple<Label, Variable> t = _rescueBlockStack.peek();
             s.addInstr(new PutGlobalVarInstr("$!", t.b));
@@ -3078,7 +3085,6 @@ public class IRBuilder {
     }
 
     public Operand buildTrue(Node node, IRExecutionScope s) {
-        addThreadPollInstrIfNeeded(s);
         return BooleanLiteral.TRUE; 
     }
 
@@ -3114,11 +3120,11 @@ public class IRBuilder {
             // Redo jumps here 
             s.addInstr(new LabelInstr(loop.iterStartLabel));
 
+            // Thread poll at start of iteration -- ensures that redos and nexts run one thread-poll per iteration
+            addThreadPollInstrIfNeeded(s);
+
             // Build body
             if (bodyNode != null) build(bodyNode, s);
-
-            // SSS FIXME: Is this correctly placed ... at the end of the loop iteration?
-            addThreadPollInstrIfNeeded(s);
 
             // Next jumps here
             s.addInstr(new LabelInstr(loop.iterEndLabel));

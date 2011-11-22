@@ -5,11 +5,13 @@ import java.util.Map;
 import java.util.ArrayList;
 import org.jruby.compiler.ir.instructions.Instr;
 import org.jruby.compiler.ir.instructions.ReceiveArgumentInstruction;
+import org.jruby.compiler.ir.instructions.ReceiveRestArgInstr;
 import org.jruby.compiler.ir.instructions.ReceiveOptionalArgumentInstr;
 import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.LocalVariable;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Splat;
+import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.parser.StaticScope;
 import org.jruby.parser.IRStaticScope;
 import org.jruby.parser.IRStaticScopeFactory;
@@ -71,8 +73,9 @@ public class IRMethod extends IRExecutionScope {
         // Accumulate call arguments
         // SSS FIXME: Should we have a base class for receive instrs?
         if (i instanceof ReceiveArgumentInstruction) {
-            ReceiveArgumentInstruction recv = (ReceiveArgumentInstruction) i;
-            callArgs.add(recv.isRestOfArgArray() ? new Splat(recv.getResult()) : recv.getResult());
+            callArgs.add(((ReceiveArgumentInstruction) i).getResult());
+        } else if (i instanceof ReceiveRestArgInstr) {
+            callArgs.add(new Splat(((ReceiveRestArgInstr)i).getResult()));
         } else if (i instanceof ReceiveOptionalArgumentInstr) {
             callArgs.add(((ReceiveOptionalArgumentInstr) i).getResult());
         }
@@ -112,7 +115,7 @@ public class IRMethod extends IRExecutionScope {
     }
 
     public LocalVariable getImplicitBlockArg() {
-        return getLocalVariable("%block", 0);
+        return getLocalVariable(Variable.BLOCK, 0);
     }
 
     public LocalVariable getNewFlipStateVariable() {

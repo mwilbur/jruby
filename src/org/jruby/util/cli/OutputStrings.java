@@ -6,6 +6,10 @@ import org.jruby.CompatVersion;
 import org.jruby.runtime.Constants;
 import org.jruby.util.SafePropertyAccessor;
 
+/**
+ * Utility methods to generate the command-line output strings for help,
+ * extended options, properties, version, and copyright strings.
+ */
 public class OutputStrings {
     public static String getBasicUsageHelp() {
         StringBuilder sb = new StringBuilder();
@@ -87,8 +91,8 @@ public class OutputStrings {
                 .append("  or if passing directly to Java, -Djruby.<property>=<value>\n")
                 .append("  or put <property>=<value> in .jrubyrc\n");
         
-        Options.Category category = null;
-        for (Options.Option property : Options.PROPERTIES) {
+        Category category = null;
+        for (Option property : Options.PROPERTIES) {
             if (category != property.category) {
                 category = property.category;
                 sb.append('\n').append(category).append(" settings:\n\n");
