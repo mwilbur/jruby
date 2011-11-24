@@ -12,11 +12,12 @@ import org.jruby.runtime.ThreadContext;
 import org.jruby.RubyArray;
 import org.jruby.RubyProc;
 import org.jruby.RubyNil;
+import org.jruby.runtime.DynamicScope;
 
 public class YieldInstr extends Instr implements ResultInstr {
-    Operand blockArg;
-    Operand yieldArg;
-    private final boolean unwrapArray;
+    public final boolean unwrapArray;
+    private Operand blockArg;
+    private Operand yieldArg;
     private Variable result;
 
     public YieldInstr(Variable result, Variable block, Operand arg, boolean unwrapArray) {
@@ -35,26 +36,30 @@ public class YieldInstr extends Instr implements ResultInstr {
         return this;  // This is just a placeholder during inlining.
     }
 
+    public Operand getBlockArg() {
+        return blockArg;
+    }
+
+    public Operand getYieldArg() {
+        return yieldArg;
+    }
+
     @Interp
     @Override
-    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
         Object resultValue;
-        Object blk = (Object) blockArg.retrieve(context, self, temp);
+        Object blk = (Object) blockArg.retrieve(context, self, currDynScope, temp);
         if (blk instanceof RubyProc) blk = ((RubyProc)blk).getBlock();
         if (blk instanceof RubyNil) blk = Block.NULL_BLOCK;
         // Blocks that get yielded are always normal
         Block b = (Block)blk;
         b.type = Block.Type.NORMAL;
         if (yieldArg == null) {
-            resultValue = b.yieldSpecific(context);
+            return b.yieldSpecific(context);
         } else {
-            IRubyObject yieldVal = (IRubyObject)yieldArg.retrieve(context, self, temp);
-            resultValue = (unwrapArray && (yieldVal instanceof RubyArray)) ? b.yieldArray(context, yieldVal, null, null) : b.yield(context, yieldVal);
+            IRubyObject yieldVal = (IRubyObject)yieldArg.retrieve(context, self, currDynScope, temp);
+            return (unwrapArray && (yieldVal instanceof RubyArray)) ? b.yieldArray(context, yieldVal, null, null) : b.yield(context, yieldVal);
         }
-        
-        result.store(context, self, temp, resultValue);
-        
-        return null;
     }
 
     @Override

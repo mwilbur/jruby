@@ -5,6 +5,7 @@ import org.jruby.compiler.ir.operands.GlobalVariable;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.runtime.Block;
+import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -19,8 +20,10 @@ public class PutGlobalVarInstr extends PutInstr {
     }
 
     @Override
-    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
-        getTarget().store(context, self, temp, getValue().retrieve(context, self, temp));
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
+        GlobalVariable target = (GlobalVariable)getTarget();
+        IRubyObject    value  = (IRubyObject) getValue().retrieve(context, self, currDynScope, temp);
+        context.getRuntime().getGlobalVariables().set(target.getName(), value);
         return null;
     }
 }
