@@ -13,6 +13,7 @@ import org.jruby.runtime.ThreadContext;
 import org.jruby.RubyModule;
 import org.jruby.parser.StaticScope;
 import org.jruby.runtime.Block;
+import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.builtin.IRubyObject;
 
 // The runtime method call that GET_CONST is translated to in this case will call
@@ -57,8 +58,8 @@ public class SearchConstInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
-        StaticScope staticScope = definingModule == null ? context.getCurrentScope().getStaticScope() : definingModule.getStaticScope();
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
+        StaticScope staticScope = definingModule == null ? currDynScope.getStaticScope() : definingModule.getStaticScope();
         Ruby runtime = context.getRuntime();
         RubyModule object = runtime.getObject();
         Object constant;
@@ -70,9 +71,6 @@ public class SearchConstInstr extends Instr implements ResultInstr {
         }
 
         if (constant == null) constant = UndefinedValue.UNDEFINED;
-        
-        result.store(context, self, temp, constant);
-
-        return null;
+		  return constant;
     }
 }

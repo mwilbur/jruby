@@ -12,6 +12,7 @@ import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.evaluator.ASTInterpreter;
 import org.jruby.runtime.Block;
+import org.jruby.runtime.DynamicScope;
 
 /*
  * Finds the module that will hold class vars for the object that is being queried.
@@ -60,20 +61,18 @@ public class GetClassVarContainerModuleInstr extends Instr implements ResultInst
     }
 
     @Override
-    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
         // SSS FIXME: This is ugly and needs fixing.  Is there another way of capturing this info?
         RubyModule containerModule = (candidateScope == null) ? null : candidateScope.getStaticScope().getModule();
         if (containerModule == null) containerModule = ASTInterpreter.getClassVariableBase(context, context.getRuntime());
         if (containerModule == null && object != null) {
-            IRubyObject arg = (IRubyObject) object.retrieve(context, self, temp);
+            IRubyObject arg = (IRubyObject) object.retrieve(context, self, currDynScope, temp);
             // SSS: What is the right thing to do here?
             containerModule = arg.getMetaClass(); //(arg instanceof RubyClass) ? ((RubyClass)arg).getRealClass() : arg.getType();
         }
 
         if (containerModule == null) throw context.getRuntime().newTypeError("no class/module to define class variable");
 
-        result.store(context, self, temp, containerModule);
-
-        return null;
+		  return containerModule;
     }
 }

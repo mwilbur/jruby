@@ -9,6 +9,7 @@ import org.jruby.compiler.ir.operands.Nil;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.runtime.Block;
+import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -66,9 +67,8 @@ public class IsTrueInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
         // ENEBO: This seems like a lot of extra work...
-        result.store(context, self, temp, context.getRuntime().newBoolean(((IRubyObject) value.retrieve(context, self, temp)).isTrue()));
-        return null;
+        return context.getRuntime().newBoolean(((IRubyObject) value.retrieve(context, self, currDynScope, temp)).isTrue());
     }
 }

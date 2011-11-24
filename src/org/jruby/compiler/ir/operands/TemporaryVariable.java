@@ -1,5 +1,6 @@
 package org.jruby.compiler.ir.operands;
 
+import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -8,7 +9,7 @@ import org.jruby.runtime.builtin.IRubyObject;
  * visible to Ruby itself.
  */
 public class TemporaryVariable extends Variable {
-    final int offset;
+    public final int offset;
 	 String name;
 
     public TemporaryVariable(int offset) {
@@ -59,14 +60,7 @@ public class TemporaryVariable extends Variable {
     }
 
     @Override
-    public Object retrieve(ThreadContext context, IRubyObject self, Object[] temp) {
+    public Object retrieve(ThreadContext context, IRubyObject self, DynamicScope currDynScope, Object[] temp) {
         return temp[offset];
-    }
-
-    @Override
-    public Object store(ThreadContext context, IRubyObject self, Object[] temp, Object value) {
-        Object old = temp[offset];
-        temp[offset] = value;
-        return old;
     }
 }
