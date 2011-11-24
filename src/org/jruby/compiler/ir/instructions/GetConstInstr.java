@@ -6,6 +6,7 @@ import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.runtime.Block;
+import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -23,8 +24,8 @@ public class GetConstInstr extends GetInstr {
     }
 
     @Override
-    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
-        Object source = getSource().retrieve(context, self, temp);
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
+        Object source = getSource().retrieve(context, self, currDynScope, temp);
         RubyModule module;
 
         // Retrieving a WrappedIRClosure which is a closure returns a closure and not
@@ -43,7 +44,6 @@ public class GetConstInstr extends GetInstr {
         if (constant == null) constant = module.getConstantFromConstMissing(getRef());
 
         //if (container == null) throw runtime.newNameError("unitialized constant " + scope.getName(), scope.getName());
-        getResult().store(context, self, temp, constant);
-        return null;
+        return constant;
     }
 }

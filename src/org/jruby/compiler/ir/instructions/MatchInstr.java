@@ -7,12 +7,10 @@ import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.runtime.Block;
+import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
-/**
- *
- */
 public class MatchInstr extends Instr implements ResultInstr {
     private Variable result;
     private Operand receiver;
@@ -50,9 +48,8 @@ public class MatchInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
-        RubyRegexp regexp = (RubyRegexp) receiver.retrieve(context, self, temp);
-        result.store(context, self, temp, regexp.op_match2(context));
-        return null;
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
+        RubyRegexp regexp = (RubyRegexp) receiver.retrieve(context, self, currDynScope, temp);
+        return regexp.op_match2(context);
     }
 }

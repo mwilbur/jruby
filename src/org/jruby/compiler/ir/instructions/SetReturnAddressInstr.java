@@ -7,6 +7,7 @@ import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.compiler.ir.operands.Label;
 import org.jruby.runtime.Block;
+import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -56,9 +57,7 @@ public class SetReturnAddressInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
-        result.store(context, self, temp, returnAddr);
-        
-        return null;
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
+		  return returnAddr;
     }
 }

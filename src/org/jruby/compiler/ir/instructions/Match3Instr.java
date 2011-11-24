@@ -12,6 +12,7 @@ import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.runtime.Block;
+import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -60,18 +61,14 @@ public class Match3Instr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
-        RubyRegexp regexp = (RubyRegexp) receiver.retrieve(context, self, temp);
-        IRubyObject argValue = (IRubyObject) arg.retrieve(context, self, temp);
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
+        RubyRegexp regexp = (RubyRegexp) receiver.retrieve(context, self, currDynScope, temp);
+        IRubyObject argValue = (IRubyObject) arg.retrieve(context, self, currDynScope, temp);
         
-        Object resultValue;
         if (argValue instanceof RubyString) {
-            resultValue = regexp.op_match(context, argValue);
+            return regexp.op_match(context, argValue);
         } else {
-            resultValue = argValue.callMethod(context, "=~", regexp);
+            return argValue.callMethod(context, "=~", regexp);
         }
-        
-        result.store(context, self, temp, resultValue);                
-        return null;                
     }
 }

@@ -11,6 +11,7 @@ import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.RubyArray;
 import org.jruby.RubyModule;
 import org.jruby.runtime.Block;
+import org.jruby.runtime.DynamicScope;
 
 // This instruction is similar to EQQInstr, except it also verifies that
 // the type to EQQ with is actually a class or a module since rescue clauses
@@ -61,12 +62,12 @@ public class RescueEQQInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
-        IRubyObject receiver = (IRubyObject) arg1.retrieve(context, self, temp);
-        IRubyObject value = (IRubyObject) arg2.retrieve(context, self, temp);
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
+        IRubyObject receiver = (IRubyObject) arg1.retrieve(context, self, currDynScope, temp);
+        IRubyObject value = (IRubyObject) arg2.retrieve(context, self, currDynScope, temp);
 
         if (value == UndefinedValue.UNDEFINED) {
-            result.store(context, self, temp, receiver);
+				return receiver;
         } else if (receiver instanceof RubyArray) {
             RubyArray testVals = (RubyArray)receiver;
             for (int i = 0, n = testVals.getLength(); i < n; i++) {
@@ -75,19 +76,14 @@ public class RescueEQQInstr extends Instr implements ResultInstr {
                    throw context.getRuntime().newTypeError("class or module required for rescue clause. Found: " + excType);
                 }
                 IRubyObject eqqVal = excType.callMethod(context, "===", value);
-                if (eqqVal.isTrue()) {
-                    result.store(context, self, temp, eqqVal);
-                    return null;
-                }
+                if (eqqVal.isTrue()) return eqqVal;
             }
-            result.store(context, self, temp, context.getRuntime().newBoolean(false));
+            return context.getRuntime().newBoolean(false);
         } else {
             if (!(receiver instanceof RubyModule)) {
                throw context.getRuntime().newTypeError("class or module required for rescue clause. Found: " + receiver);
             }
-            result.store(context, self, temp, receiver.callMethod(context, "===", value));
+            return receiver.callMethod(context, "===", value);
         }
-        
-        return null;
     }
 }

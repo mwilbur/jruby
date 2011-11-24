@@ -13,6 +13,7 @@ import org.jruby.compiler.ir.representations.InlinerInfo;
 import org.jruby.internal.runtime.methods.DynamicMethod;
 import org.jruby.internal.runtime.methods.InterpretedIRMethod;
 import org.jruby.runtime.Block;
+import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.Visibility;
 import org.jruby.runtime.builtin.IRubyObject;
@@ -60,9 +61,9 @@ public class DefineMetaClassInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
         Ruby runtime = context.getRuntime();
-        IRubyObject obj = (IRubyObject)object.retrieve(context, self, temp);
+        IRubyObject obj = (IRubyObject)object.retrieve(context, self, currDynScope, temp);
         
         if (obj instanceof RubyFixnum || obj instanceof RubySymbol) {
             throw runtime.newTypeError("no virtual class for " + obj.getMetaClass().getBaseName());
@@ -75,9 +76,7 @@ public class DefineMetaClassInstr extends Instr implements ResultInstr {
             dummyMetaClass.getStaticScope().setModule(singletonClass);
             DynamicMethod method = new InterpretedIRMethod(dummyMetaClass.getRootMethod(), Visibility.PUBLIC, singletonClass);
             // SSS FIXME: Rather than pass the block implicitly, should we add %block as another operand to DefineMetaClass instr?
-            Object v = method.call(context, singletonClass, singletonClass, "", new IRubyObject[]{}, block);
-            result.store(context, self, temp, v);
-            return null;
+            return method.call(context, singletonClass, singletonClass, "", new IRubyObject[]{}, block);
         }
     }
 }

@@ -10,6 +10,7 @@ import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.RubyArray;
 import org.jruby.runtime.Block;
+import org.jruby.runtime.DynamicScope;
 
 // If v2 is an array, compare v1 with every element of v2 and stop on first match!
 public class EQQInstr extends Instr implements ResultInstr {
@@ -56,26 +57,21 @@ public class EQQInstr extends Instr implements ResultInstr {
     }
 
     @Override
-    public Object interpret(ThreadContext context, IRubyObject self, IRubyObject[] args, Block block, Object exception, Object[] temp) {
-        IRubyObject receiver = (IRubyObject) arg1.retrieve(context, self, temp);
-        IRubyObject value = (IRubyObject) arg2.retrieve(context, self, temp);
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
+        IRubyObject receiver = (IRubyObject) arg1.retrieve(context, self, currDynScope, temp);
+        IRubyObject value = (IRubyObject) arg2.retrieve(context, self, currDynScope, temp);
 
         if (value == UndefinedValue.UNDEFINED) {
-            result.store(context, self, temp, receiver);
+				return receiver;
         } else if (receiver instanceof RubyArray) {
             RubyArray testVals = (RubyArray)receiver;
             for (int i = 0, n = testVals.getLength(); i < n; i++) {
                 IRubyObject eqqVal = testVals.eltInternal(i).callMethod(context, "===", value);
-                if (eqqVal.isTrue()) {
-                    result.store(context, self, temp, eqqVal);
-                    return null;
-                }
+                if (eqqVal.isTrue()) return eqqVal;
             }
-            result.store(context, self, temp, context.getRuntime().newBoolean(false));
+            return context.getRuntime().newBoolean(false);
         } else {
-            result.store(context, self, temp, receiver.callMethod(context, "===", value));
+            return receiver.callMethod(context, "===", value);
         }
-        
-        return null;
     }
 }
