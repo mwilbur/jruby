@@ -22,7 +22,9 @@ import org.jruby.compiler.ir.instructions.SuperInstr;
 import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.LocalVariable;
 import org.jruby.compiler.ir.operands.Operand;
+import org.jruby.compiler.ir.operands.RenamedVariable;
 import org.jruby.compiler.ir.operands.Self;
+import org.jruby.compiler.ir.operands.TemporaryVariable;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.representations.BasicBlock;
 import org.jruby.compiler.ir.representations.CFG;
@@ -47,6 +49,7 @@ public abstract class IRExecutionScope extends IRScopeImpl {
     private Instr[] instrs = null;
     private List<BasicBlock> linearizedBBList = null;  // Linearized list of bbs
     private int scopeExitPC = -1;
+    protected int temporaryVariableIndex = -1;
 
     protected static class LocalVariableAllocator {
         public int nextSlot;
@@ -131,7 +134,9 @@ public abstract class IRExecutionScope extends IRScopeImpl {
     protected int optionalArgs = 0;
     protected int restArg = -1;
 
-    private void init() {
+    public IRExecutionScope(IRScope lexicalParent, String name, StaticScope staticScope) {
+        super(lexicalParent, name, staticScope);
+        
         instructions = new ArrayList<Instr>();
         closures = new ArrayList<IRClosure>();
         loopStack = new Stack<IRLoop>();
@@ -142,11 +147,6 @@ public abstract class IRExecutionScope extends IRScopeImpl {
         requiresBinding = true;
 
         localVars = new LocalVariableAllocator();
-    }
-
-    public IRExecutionScope(IRScope lexicalParent, String name, StaticScope staticScope) {
-        super(lexicalParent, name, staticScope);
-        init();
     }
 
     public void addClosure(IRClosure c) {
@@ -447,7 +447,26 @@ public abstract class IRExecutionScope extends IRScopeImpl {
     protected void initEvalScopeVariableAllocator(boolean reset) {
         if (reset || evalScopeVars == null) evalScopeVars = new LocalVariableAllocator();
     }
+    
+    public Variable getNewTemporaryVariable() {
+        temporaryVariableIndex++;
+        return new TemporaryVariable(temporaryVariableIndex);
+    }    
 
+    public void resetTemporaryVariables() {
+        temporaryVariableIndex = -1;
+    }
+    
+    public int getTemporaryVariableSize() {
+        return temporaryVariableIndex + 1;
+    }
+    
+    // Generate a new variable for inlined code (for ease of debugging, use differently named variables for inlined code)
+    public Variable getNewInlineVariable() {
+        // Use the temporary variable counters for allocating temporary variables
+        return new RenamedVariable("%i", allocateNextPrefixedName("%v"));
+    }    
+    
     public int getLocalVariablesCount() {
         return localVars.nextSlot;
     }

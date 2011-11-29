@@ -85,17 +85,9 @@ public class IRClosure extends IRExecutionScope {
     }
 
     @Override
-    public int getTemporaryVariableSize() {
-        return getPrefixCountSize("%cl_" + closureId);
-    }
-
-    @Override
     public Variable getNewTemporaryVariable() {
-        return new TemporaryClosureVariable(closureId, allocateNextPrefixedName("%cl_" + closureId));
-    }
-
-    public void resetTemporaryVariables() {
-        resetVariableCounter("%cl_" + closureId);
+        temporaryVariableIndex++;
+        return new TemporaryClosureVariable(closureId, temporaryVariableIndex);
     }
 
     @Override

@@ -142,7 +142,6 @@ import org.jruby.compiler.ir.instructions.GetConstInstr;
 import org.jruby.compiler.ir.instructions.GetFieldInstr;
 import org.jruby.compiler.ir.instructions.GetGlobalVariableInstr;
 import org.jruby.compiler.ir.instructions.Instr;
-import org.jruby.compiler.ir.instructions.IsTrueInstr;
 import org.jruby.compiler.ir.instructions.JRubyImplCallInstr;
 import org.jruby.compiler.ir.instructions.JRubyImplCallInstr.JRubyImplementationMethod;
 import org.jruby.compiler.ir.instructions.JumpInstr;
@@ -2530,9 +2529,7 @@ public class IRBuilder {
         String opName = opAsgnNode.getOperatorName();
         if (opName.equals("||") || opName.equals("&&")) {
             l = s.getNewLabel();
-            Variable flag = s.getNewTemporaryVariable();
-            s.addInstr(new IsTrueInstr(flag, readerValue));
-            s.addInstr(BEQInstr.create(flag, opName.equals("||") ? BooleanLiteral.TRUE : BooleanLiteral.FALSE, l));
+            s.addInstr(BEQInstr.create(readerValue, opName.equals("||") ? BooleanLiteral.TRUE : BooleanLiteral.FALSE, l));
 
             // compute value and set it
             Operand  v2 = build(opAsgnNode.getValueNode(), s);
@@ -2567,9 +2564,7 @@ public class IRBuilder {
         Label    l  = s.getNewLabel();
         Operand  v1 = build(andNode.getFirstNode(), s);
         Variable result = getValueInTemporaryVariable(s, v1);
-        Variable f = s.getNewTemporaryVariable();
-        s.addInstr(new IsTrueInstr(f, v1));
-        s.addInstr(BEQInstr.create(f, BooleanLiteral.FALSE, l));
+        s.addInstr(BEQInstr.create(v1, BooleanLiteral.FALSE, l));
         Operand v2 = build(andNode.getSecondNode(), s);  // This does the assignment!
         s.addInstr(new CopyInstr(result, v2));
         s.addInstr(new LabelInstr(l));
@@ -2602,8 +2597,8 @@ public class IRBuilder {
             s.addInstr(BEQInstr.create(flag, Nil.NIL, l2)); // if v1 is undefined, go to v2's computation
         }
         v1 = build(orNode.getFirstNode(), s); // build of 'x'
+        s.addInstr(new CopyInstr(flag, v1));
         Variable result = getValueInTemporaryVariable(s, v1);
-        s.addInstr(new IsTrueInstr(flag, v1));
         if (needsDefnCheck) {
             s.addInstr(new LabelInstr(l2));
         }
@@ -2672,11 +2667,9 @@ public class IRBuilder {
         Operand array = build(opElementAsgnNode.getReceiverNode(), s);
         Label    l     = s.getNewLabel();
         Variable elt   = s.getNewTemporaryVariable();
-        Variable flag  = s.getNewTemporaryVariable();
         List<Operand> argList = setupCallArgs(opElementAsgnNode.getArgsNode(), s);
         s.addInstr(CallInstr.create(elt, new MethAddr("[]"), array, argList.toArray(new Operand[argList.size()]), null));
-        s.addInstr(new IsTrueInstr(flag, elt));
-        s.addInstr(BEQInstr.create(flag, BooleanLiteral.TRUE, l));
+        s.addInstr(BEQInstr.create(elt, BooleanLiteral.TRUE, l));
         Operand value = build(opElementAsgnNode.getValueNode(), s);
         argList.add(value);
         s.addInstr(CallInstr.create(elt, new MethAddr("[]="), array, argList.toArray(new Operand[argList.size()]), null));
@@ -2690,11 +2683,9 @@ public class IRBuilder {
         Operand array = build(opElementAsgnNode.getReceiverNode(), s);
         Label    l     = s.getNewLabel();
         Variable elt   = s.getNewTemporaryVariable();
-        Variable flag  = s.getNewTemporaryVariable();
         List<Operand> argList = setupCallArgs(opElementAsgnNode.getArgsNode(), s);
         s.addInstr(CallInstr.create(elt, new MethAddr("[]"), array, argList.toArray(new Operand[argList.size()]), null));
-        s.addInstr(new IsTrueInstr(flag, elt));
-        s.addInstr(BEQInstr.create(flag, BooleanLiteral.FALSE, l));
+        s.addInstr(BEQInstr.create(elt, BooleanLiteral.FALSE, l));
         Operand value = build(opElementAsgnNode.getValueNode(), s);
         argList.add(value);
         s.addInstr(CallInstr.create(elt, new MethAddr("[]="), array, argList.toArray(new Operand[argList.size()]), null));
