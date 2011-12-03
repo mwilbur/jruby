@@ -24,7 +24,7 @@ import org.jruby.runtime.Arity;
 import org.jruby.runtime.BlockBody;
 import org.jruby.runtime.InterpretedIRBlockBody;
 
-public class IRClosure extends IRExecutionScope {
+public class IRClosure extends IRScope {
     public final Label startLabel; // Label for the start of the closure (used to implement redo)
     public final Label endLabel;   // Label for the end of the closure (used to implement retry)
     public final int closureId;    // Unique id for this closure within the nearest ancestor method.
@@ -153,7 +153,7 @@ public class IRClosure extends IRExecutionScope {
     public LocalVariable findExistingLocalVariable(String name) {
         LocalVariable lvar = localVars.getVariable(name);
         if (lvar != null) return lvar;
-        else return ((IRExecutionScope)getLexicalParent()).findExistingLocalVariable(name);
+        else return getLexicalParent().findExistingLocalVariable(name);
     }
 
     public LocalVariable getNewLocalVariable(String name, int scopeDepth) {

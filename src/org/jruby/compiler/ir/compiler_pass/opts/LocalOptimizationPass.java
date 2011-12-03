@@ -5,10 +5,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
-import java.util.Set;
 
 import org.jruby.compiler.ir.IRClosure;
-import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.IRScope;
 import org.jruby.compiler.ir.instructions.CallInstr;
 import org.jruby.compiler.ir.instructions.CallBase;
@@ -16,7 +14,6 @@ import org.jruby.compiler.ir.instructions.CopyInstr;
 import org.jruby.compiler.ir.instructions.Instr;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.CodeVersion;
-import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.compiler.ir.operands.TemporaryVariable;
@@ -30,24 +27,20 @@ public class LocalOptimizationPass implements CompilerPass {
     }
 
     public void run(IRScope s) {
-        if (s instanceof IRExecutionScope) {
-            IRExecutionScope es = (IRExecutionScope)s;
-
-            // Run this pass on nested closures first!
-            // This let us compute execute scope flags for a method based on what all nested closures do
-            for (IRClosure c: es.getClosures()) {
-                run(c);
-            }
-
-            // Now, run on current scope
-            runLocalOpts(es);
-
-            // Only after running local opts, compute various execution scope flags
-            es.computeExecutionScopeFlags();
+        // Run this pass on nested closures first!
+        // This let us compute execute scope flags for a method based on what all nested closures do
+        for (IRClosure c: s.getClosures()) {
+            run(c);
         }
+
+        // Now, run on current scope
+        runLocalOpts(s);
+
+        // Only after running local opts, compute various execution scope flags
+        s.computeExecutionScopeFlags();
     }
 
-    private static void allocVar(Operand oldVar, IRExecutionScope s, List<TemporaryVariable> freeVarsList, Map<Operand, Operand> newVarMap) {
+    private static void allocVar(Operand oldVar, IRScope s, List<TemporaryVariable> freeVarsList, Map<Operand, Operand> newVarMap) {
         // If we dont have a var mapping, get a new var -- try the free list first
         // and if none available, allocate a fresh one
         if (newVarMap.get(oldVar) == null) {
@@ -60,7 +53,7 @@ public class LocalOptimizationPass implements CompilerPass {
         if (!freeVarsList.contains(newVar)) freeVarsList.add(0, newVar); 
     }
 
-    private static void optimizeTmpVars(IRExecutionScope s) {
+    private static void optimizeTmpVars(IRScope s) {
         // Pass 1: Analyze instructions and find use and def count of temporary variables
         Map<TemporaryVariable, Integer> tmpVarUseCounts = new HashMap<TemporaryVariable, Integer>();
         Map<TemporaryVariable, Integer> tmpVarDefCounts = new HashMap<TemporaryVariable, Integer>();
@@ -250,7 +243,7 @@ public class LocalOptimizationPass implements CompilerPass {
         }
     }
 
-    private static void runLocalOpts(IRExecutionScope s) {
+    private static void runLocalOpts(IRScope s) {
         optimizeTmpVars(s);
 
         // Reset value map if this instruction is the start/end of a basic block

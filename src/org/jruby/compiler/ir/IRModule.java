@@ -8,19 +8,18 @@ import org.jruby.Ruby;
 import org.jruby.RubyModule;
 import org.jruby.compiler.ir.compiler_pass.CompilerPass;
 import org.jruby.compiler.ir.instructions.ReceiveSelfInstruction;
-import org.jruby.compiler.ir.instructions.ReceiveClosureInstr;
 import org.jruby.compiler.ir.operands.LocalVariable;
+import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.parser.IRStaticScopeFactory;
 import org.jruby.parser.StaticScope;
 
-public class IRModule extends IRScopeImpl {
+public class IRModule extends IRScope {
     private final static StaticScope rootObjectScope = IRStaticScopeFactory.newIRLocalScope(null);
 
     // The "root" method of a class -- the scope in which all definitions, and class code executes, equivalent to java clinit
     private final static String ROOT_METHOD_PREFIX = "[root]:";
     private static Map<String, IRClass> coreClasses;
 
-    private IRMethod rootMethod; // Dummy top-level method for the class
     private CodeVersion version;    // Current code version for this module
 
     // Modules, classes, and methods that belong to this scope 
@@ -38,6 +37,15 @@ public class IRModule extends IRScopeImpl {
     static {
         bootStrap();
     }
+    
+
+    public IRModule(IRScope lexicalParent, String name, StaticScope scope) {
+        super(lexicalParent, name, scope);
+        
+        addInstr(new ReceiveSelfInstruction(getSelf()));   // Set up self!
+        
+        updateVersion();
+    }    
 
     static private IRClass addCoreClass(String name, IRScope parent, String[] coreMethods, StaticScope staticScope) {
         IRClass c = new IRClass(parent, null, name, staticScope);
@@ -82,24 +90,6 @@ public class IRModule extends IRScopeImpl {
         return m.getName().startsWith(ROOT_METHOD_PREFIX);
     }
 
-    private void addRootMethod() {
-        // Build a dummy static method for the class -- the scope in which all definitions, and class code executes, equivalent to java clinit
-        // SSS FIXME: We have to build different instances of the root method each time we run into a class definition.
-        //
-        //    class Foo
-        //      def m1; ...; end
-        //    end
-        //
-        //    class Foo
-        //      def m2; ...; end
-        //    end
-        //
-        String n = ROOT_METHOD_PREFIX + getName();
-        rootMethod = new IRMethod(this, n, false, getStaticScope());
-        rootMethod.addInstr(new ReceiveSelfInstruction(rootMethod.getSelf()));   // Set up self!
-        rootMethod.addInstr(new ReceiveClosureInstr(rootMethod.getImplicitBlockArg()));
-    }
-
     public List<IRModule> getModules() {
         return modules;
     }
@@ -136,7 +126,6 @@ public class IRModule extends IRScopeImpl {
             c.runCompilerPass(p);
         }
 
-        getRootMethod().runCompilerPass(p);
         for (IRScope meth : methods) {
             meth.runCompilerPass(p);
         }
@@ -145,12 +134,6 @@ public class IRModule extends IRScopeImpl {
     @Override
     public IRModule getNearestModule() {
         return this;
-    }
-
-    public IRModule(IRScope lexicalParent, String name, StaticScope scope) {
-        super(lexicalParent, name, scope);
-        addRootMethod();
-        updateVersion();
     }
 
     public void updateVersion() {
@@ -163,10 +146,6 @@ public class IRModule extends IRScopeImpl {
 
     public CodeVersion getVersion() {
         return version;
-    }
-
-    public IRMethod getRootMethod() {
-        return rootMethod;
     }
 
     public IRMethod getInstanceMethod(String name) {
@@ -200,7 +179,32 @@ public class IRModule extends IRScopeImpl {
         else return runtime.getClass(n);
     }
 
-    public LocalVariable getLocalVariable(String name, int depth) {
-        throw new UnsupportedOperationException("This should be happening in the root method of this module/class instead");
+    public LocalVariable getLocalVariable(String name, int scopeDepth) {
+        LocalVariable lvar = findExistingLocalVariable(name);
+        if (lvar == null) {
+            lvar = new LocalVariable(name, scopeDepth, localVars.nextSlot);
+            localVars.putVariable(name, lvar);
+        }
+
+        return lvar;
+    }
+
+    @Override
+    protected StaticScope constructStaticScope(StaticScope unused) {
+        this.requiredArgs = 0;
+        this.optionalArgs = 0;
+        this.restArg = -1;
+
+        return IRStaticScopeFactory.newIRLocalScope(null); // method scopes cannot see any lower
+    }
+
+    @Override
+    public LocalVariable getImplicitBlockArg() {
+        return getLocalVariable(Variable.BLOCK, 0);
+    }
+
+    @Override
+    public LocalVariable findExistingLocalVariable(String name) {
+        return localVars.getVariable(name);
     }
 }

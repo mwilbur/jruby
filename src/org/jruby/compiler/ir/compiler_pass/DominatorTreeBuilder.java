@@ -5,7 +5,6 @@ import java.util.LinkedList;
 import java.util.ListIterator;
 import java.util.Map;
 import org.jruby.compiler.ir.IRScope;
-import org.jruby.compiler.ir.IRExecutionScope;
 import org.jruby.compiler.ir.representations.BasicBlock;
 import org.jruby.compiler.ir.representations.CFG;
 import org.jruby.util.log.Logger;
@@ -18,14 +17,11 @@ public class DominatorTreeBuilder implements CompilerPass {
         return false;
     }
 
-    public void run(IRScope s) {
-        if (s instanceof IRExecutionScope) {
-            IRExecutionScope scope = ((IRExecutionScope) s);
-            try {
-                scope.buildDominatorTree(this);
-            } catch (Exception e) {
-                LOG.debug("Caught exception building dom tree for {}", scope.cfg());
-            }
+    public void run(IRScope scope) {
+        try {
+            scope.buildDominatorTree(this);
+        } catch (Exception e) {
+            LOG.debug("Caught exception building dom tree for {}", scope.cfg());
         }
     }
     
