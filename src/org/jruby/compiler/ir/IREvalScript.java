@@ -8,8 +8,6 @@ import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.LocalVariable;
 import org.jruby.compiler.ir.operands.ClosureLocalVariable;
 import org.jruby.compiler.ir.operands.Operand;
-import org.jruby.compiler.ir.operands.TemporaryClosureVariable;
-import org.jruby.compiler.ir.operands.Variable;
 import org.jruby.interpreter.Interpreter;
 import org.jruby.parser.IRStaticScopeFactory;
 import org.jruby.parser.StaticScope;
@@ -23,7 +21,7 @@ import org.jruby.util.log.LoggerFactory;
 public class IREvalScript extends IRClosure {
     private static final Logger LOG = LoggerFactory.getLogger("IREvalScript");
 
-    private IRExecutionScope nearestNonEvalScope;
+    private IRScope nearestNonEvalScope;
     private List<IRClosure> beginBlocks;
     private List<IRClosure> endBlocks;
 
@@ -31,18 +29,8 @@ public class IREvalScript extends IRClosure {
         super(lexicalParent, staticScope, "EVAL_");
         IRScope s = lexicalParent;
         while (s instanceof IREvalScript) s = s.getLexicalParent();
-        this.nearestNonEvalScope = (IRExecutionScope)s;
+        this.nearestNonEvalScope = s;
         this.nearestNonEvalScope.initEvalScopeVariableAllocator(false);
-    }
-
-    @Override
-    public Variable getNewTemporaryVariable() {
-        return new TemporaryClosureVariable(closureId, allocateNextPrefixedName("%ev_" + closureId));
-    }
-
-    @Override
-    public int getTemporaryVariableSize() {
-        return getPrefixCountSize("%ev_" + closureId);
     }
 
     @Override

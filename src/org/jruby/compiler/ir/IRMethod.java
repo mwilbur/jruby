@@ -16,7 +16,7 @@ import org.jruby.parser.StaticScope;
 import org.jruby.parser.IRStaticScope;
 import org.jruby.parser.IRStaticScopeFactory;
 
-public class IRMethod extends IRExecutionScope {
+public class IRMethod extends IRScope {
     public final boolean isInstanceMethod;
 
     public final Label startLabel; // Label for the start of the method

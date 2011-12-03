@@ -14,6 +14,7 @@ import org.jruby.compiler.ir.operands.LocalVariable;
 
 import java.util.Set;
 import java.util.HashSet;
+import org.jruby.compiler.ir.IRScope;
 import org.jruby.compiler.ir.representations.CFG;
 
 // This problem tries to find places to insert binding stores -- for spilling local variables onto a heap store

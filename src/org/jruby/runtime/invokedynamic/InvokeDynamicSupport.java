@@ -165,6 +165,10 @@ public class InvokeDynamicSupport {
         return getBootstrapHandle("floatOperatorBootstrap", BOOTSTRAP_STRING_DOUBLE_SIG);
     }
     
+    public static Handle getVariableHandle() {
+        return getBootstrapHandle("variableBootstrap", BOOTSTRAP_BARE_SIG);
+    }
+    
     ////////////////////////////////////////////////////////////////////////////
     // BOOTSTRAP METHODS
     ////////////////////////////////////////////////////////////////////////////
@@ -395,6 +399,92 @@ public class InvokeDynamicSupport {
         site.setTarget(init);
         return site;
     }
+    
+    public static class VariableSite extends MutableCallSite {
+        public final String name;
+        public VariableSite(MethodType type, String name) {
+            super(type);
+            this.name = name;
+        }
+    }
+    
+    public static CallSite variableBootstrap(Lookup lookup, String name, MethodType type) throws Throwable {
+        String varName = name.substring(4);
+        VariableSite site = new VariableSite(type, varName);
+        MethodHandle handle;
+        
+        if (name.startsWith("get:")) {
+            handle = lookup.findStatic(InvokeDynamicSupport.class, "getVariableFallback", methodType(IRubyObject.class, VariableSite.class, IRubyObject.class));
+        } else if (name.startsWith("set:")) {
+            handle = lookup.findStatic(InvokeDynamicSupport.class, "setVariableFallback", methodType(IRubyObject.class, VariableSite.class, IRubyObject.class, IRubyObject.class));
+        } else {
+            throw new RuntimeException("invalid variable access type");
+        }
+        
+        handle = handle.bindTo(site);
+        site.setTarget(handle);
+        
+        return site;
+    }
+    
+    public static IRubyObject getVariableFallback(VariableSite site, IRubyObject self) throws Throwable {
+        RubyClass.VariableAccessor accessor = self.getMetaClass().getRealClass().getVariableAccessorForRead(site.name);
+        
+        // produce nil if the variable has not been initialize
+        MethodHandle nullToNil = findStatic(RuntimeHelpers.class, "nullToNil", methodType(IRubyObject.class, IRubyObject.class, IRubyObject.class));
+        nullToNil = insertArguments(nullToNil, 1, self.getRuntime().getNil());
+        nullToNil = explicitCastArguments(nullToNil, methodType(IRubyObject.class, Object.class));
+        
+        // get variable value and filter with nullToNil
+        MethodHandle getValue = findVirtual(IRubyObject.class, "getVariable", methodType(Object.class, int.class));
+        getValue = insertArguments(getValue, 1, accessor.getIndex());
+        getValue = filterReturnValue(getValue, nullToNil);
+        
+        // prepare fallback
+        MethodHandle fallback = findStatic(InvokeDynamicSupport.class, "getVariableFallback", methodType(IRubyObject.class, VariableSite.class, IRubyObject.class));
+        fallback = fallback.bindTo(site);
+        
+        // prepare test
+        MethodHandle test = findStatic(InvocationLinker.class, "testRealClass", methodType(boolean.class, RubyClass.class, IRubyObject.class));
+        test = test.bindTo(self.getMetaClass().getRealClass());
+        
+        getValue = guardWithTest(test, getValue, fallback);
+        
+        if (RubyInstanceConfig.LOG_INDY_BINDINGS) LOG.info(site.name + "\tget on class " + self.getMetaClass().id + " bound directly");
+        site.setTarget(getValue);
+        
+        return (IRubyObject)getValue.invokeWithArguments(self);
+    }
+    
+    public static IRubyObject setVariableFallback(VariableSite site, IRubyObject self, IRubyObject value) throws Throwable {
+        RubyClass.VariableAccessor accessor = self.getMetaClass().getRealClass().getVariableAccessorForWrite(site.name);
+        
+        // return provided value
+        MethodHandle returnValue = identity(IRubyObject.class);
+        returnValue = dropArguments(returnValue, 0, IRubyObject.class);
+        
+        // set variable value and fold by returning value
+        MethodHandle setValue = findVirtual(IRubyObject.class, "setVariable", methodType(void.class, int.class, Object.class));
+        setValue = explicitCastArguments(setValue, methodType(void.class, IRubyObject.class, int.class, IRubyObject.class));
+        setValue = insertArguments(setValue, 1, accessor.getIndex());
+        setValue = foldArguments(returnValue, setValue);
+        
+        // prepare fallback
+        MethodHandle fallback = findStatic(InvokeDynamicSupport.class, "setVariableFallback", methodType(IRubyObject.class, VariableSite.class, IRubyObject.class, IRubyObject.class));
+        fallback = fallback.bindTo(site);
+        
+        // prepare test
+        MethodHandle test = findStatic(InvocationLinker.class, "testRealClass", methodType(boolean.class, RubyClass.class, IRubyObject.class));
+        test = test.bindTo(self.getMetaClass().getRealClass());
+        test = dropArguments(test, 1, IRubyObject.class);
+        
+        setValue = guardWithTest(test, setValue, fallback);
+        
+        if (RubyInstanceConfig.LOG_INDY_BINDINGS) LOG.info(site.name + "\tset on class " + self.getMetaClass().id + " bound directly");
+        site.setTarget(setValue);
+        
+        return (IRubyObject)setValue.invokeWithArguments(self, value);
+    }
 
     ////////////////////////////////////////////////////////////////////////////
     // INITIAL AND FALLBACK METHODS FOR POST BOOTSTRAP
@@ -430,6 +520,7 @@ public class InvokeDynamicSupport {
         test = test.bindTo(context.runtime);
         test = permuteArguments(test, methodType(boolean.class, ThreadContext.class, IRubyObject.class, IRubyObject.class), new int[] {2});
         
+        if (RubyInstanceConfig.LOG_INDY_BINDINGS) LOG.info(name + "\tFixnum operation bound directly");
         site.setTarget(guardWithTest(test, target, fallback));
         return (IRubyObject)site.getTarget().invokeWithArguments(context, caller, self);
     }
@@ -542,6 +633,7 @@ public class InvokeDynamicSupport {
         test = test.bindTo(context.runtime);
         test = permuteArguments(test, methodType(boolean.class, ThreadContext.class, IRubyObject.class, IRubyObject.class), new int[] {2});
         
+        if (RubyInstanceConfig.LOG_INDY_BINDINGS) LOG.info(name + "\tFloat operation bound directly");
         site.setTarget(guardWithTest(test, target, fallback));
         return (IRubyObject)site.getTarget().invokeWithArguments(context, caller, self);
     }

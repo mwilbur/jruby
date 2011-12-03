@@ -1,8 +1,8 @@
 package org.jruby.compiler.ir.compiler_pass;
 
+import org.jruby.compiler.ir.IRScope;
 import org.jruby.compiler.ir.IRMethod;
 import org.jruby.compiler.ir.IRModule;
-import org.jruby.compiler.ir.IRScope;
 import org.jruby.compiler.ir.representations.BasicBlock;
 import org.jruby.compiler.ir.instructions.CallInstr;
 import org.jruby.compiler.ir.instructions.Instr;

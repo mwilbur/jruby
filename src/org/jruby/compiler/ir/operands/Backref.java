@@ -11,26 +11,16 @@ import org.jruby.runtime.builtin.IRubyObject;
 //
 // NOTE: This operand is only used in the initial stages of optimization
 // Further down the line, it could get converted to calls
-//
-public class Backref extends Operand {
+public class Backref extends Reference {
     final public char type; 
 
     public Backref(char t) {
+        super("$" + t);
         type = t;
     }
 
-    @Override
-    public String toString() {
-        return "$" + type;
-    }
-
-    @Override
-    public void addUsedVariables(List<Variable> l) { 
-        /* Nothing to do */
-    }
-
     public Object retrieve(ThreadContext context, IRubyObject self, DynamicScope currDynScope, Object[] temp) {
-        IRubyObject backref = context.getCurrentScope().getBackRef(context.getRuntime());
+        IRubyObject backref = currDynScope.getBackRef(context.getRuntime());
         
         switch (type) {
         case '&':

@@ -275,6 +275,9 @@ public class RubyGlobal {
         if (runtime.is1_9()) {
             // needs to be a fixnum, but our revision is a sha1 hash from git
             runtime.defineGlobalConstant("RUBY_REVISION", runtime.newFixnum(Constants.RUBY1_9_REVISION));
+            
+            RubyInstanceConfig.Verbosity verbosity = runtime.getInstanceConfig().getVerbosity();
+            runtime.defineVariable(new WarningGlobalVariable(runtime, "$-W", verbosity));
         }
 		
         GlobalVariable kcodeGV = new KCodeGlobalVariable(runtime, "$KCODE", runtime.newString("NONE"));
@@ -311,6 +314,8 @@ public class RubyGlobal {
             verboseValue = runtime.getFalse();
         }
         runtime.defineVariable(new VerboseGlobalVariable(runtime, "$VERBOSE", verboseValue));
+        runtime.defineVariable(new VerboseGlobalVariable(runtime, "$-v", verboseValue));
+        runtime.defineVariable(new VerboseGlobalVariable(runtime, "$-w", verboseValue));
         
         IRubyObject debug = runtime.newBoolean(runtime.getInstanceConfig().isDebug());
         runtime.defineVariable(new DebugGlobalVariable(runtime, "$DEBUG", debug));
@@ -615,6 +620,17 @@ public class RubyGlobal {
             }
 
             return newValue;
+        }
+    }
+    
+    private static class WarningGlobalVariable extends ReadonlyGlobalVariable {
+        public WarningGlobalVariable(Ruby runtime, String name, RubyInstanceConfig.Verbosity verbosity) {
+            super(runtime, name,
+                    verbosity == RubyInstanceConfig.Verbosity.NIL   ? RubyFixnum.newFixnum(runtime, 0) :
+                    verbosity == RubyInstanceConfig.Verbosity.FALSE ? RubyFixnum.newFixnum(runtime, 1) :
+                    verbosity == RubyInstanceConfig.Verbosity.TRUE  ? RubyFixnum.newFixnum(runtime, 2) :
+                    runtime.getNil()
+                    );
         }
     }
 
