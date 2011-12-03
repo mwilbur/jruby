@@ -684,6 +684,7 @@ public class RubyRegexp extends RubyObject implements ReOptions, EncodingCapable
             Encoding strEnc = str.getEncoding();
             
             if (options.isEncodingNone() && strEnc != ASCIIEncoding.INSTANCE) {
+                str.scanForCodeRange();
                 if (str.getCodeRange() != StringSupport.CR_7BIT) {
                     throw runtime.newRegexpError("/.../n has a non escaped non ASCII character in non ASCII-8BIT script");
                 }
