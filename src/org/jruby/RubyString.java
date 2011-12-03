@@ -394,7 +394,6 @@ public class RubyString extends RubyObject implements EncodingCapable {
         super(runtime, rubyClass);
         assert value != null;
         this.value = value;
-        scanForCodeRange();
     }
 
     public RubyString(Ruby runtime, RubyClass rubyClass, ByteList value, boolean objectSpace) {
