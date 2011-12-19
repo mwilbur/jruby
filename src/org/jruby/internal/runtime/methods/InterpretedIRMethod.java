@@ -1,12 +1,13 @@
 package org.jruby.internal.runtime.methods;
 
 import org.jruby.RubyModule;
-import org.jruby.compiler.ir.IRMethod;
+import org.jruby.compiler.ir.IRScope;
 import org.jruby.compiler.ir.representations.CFG;
 import org.jruby.interpreter.Interpreter;
 import org.jruby.runtime.Arity;
 import org.jruby.runtime.Block;
 import org.jruby.runtime.DynamicScope;
+import org.jruby.parser.StaticScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.Visibility;
 import org.jruby.runtime.builtin.IRubyObject;
@@ -17,38 +18,46 @@ public class InterpretedIRMethod extends DynamicMethod {
     private static final Logger LOG = LoggerFactory.getLogger("InterpretedIRMethod");
 
     private final boolean  isTopLevel;
-    private final IRMethod method;
+    private final IRScope method;
+    private Arity arity;
     boolean displayedCFG = false; // FIXME: Remove when we find nicer way of logging CFG
 
-    // We can probably use IRMethod callArgs for something (at least arity)
-    public InterpretedIRMethod(IRMethod method, RubyModule implementationClass) {
-        super(implementationClass, Visibility.PRIVATE, CallConfiguration.FrameNoneScopeNone);
-        this.method = method;
-        this.isTopLevel = false;
-    }
-
-    // We can probably use IRMethod callArgs for something (at least arity)
-    public InterpretedIRMethod(IRMethod method, RubyModule implementationClass, boolean isTopLevel) {
-        super(implementationClass, Visibility.PRIVATE, CallConfiguration.FrameNoneScopeNone);
-        this.method = method;
-        this.isTopLevel = isTopLevel;
-    }
-
-    // We can probably use IRMethod callArgs for something (at least arity)
-    public InterpretedIRMethod(IRMethod method, Visibility visibility, RubyModule implementationClass) {
+    private InterpretedIRMethod(IRScope method, Visibility visibility, RubyModule implementationClass, boolean isTopLevel) {
         super(implementationClass, visibility, CallConfiguration.FrameNoneScopeNone);
         this.method = method;
-        this.isTopLevel = false;
+        this.isTopLevel = isTopLevel;
+        this.arity = calculateArity();
     }
-    
+
+    // We can probably use IRMethod callArgs for something (at least arity)
+    public InterpretedIRMethod(IRScope method, RubyModule implementationClass) {
+        this(method, Visibility.PRIVATE, implementationClass, false);
+    }
+
+    // We can probably use IRMethod callArgs for something (at least arity)
+    public InterpretedIRMethod(IRScope method, RubyModule implementationClass, boolean isTopLevel) {
+        this(method, Visibility.PRIVATE, implementationClass, isTopLevel);
+    }
+
+    // We can probably use IRMethod callArgs for something (at least arity)
+    public InterpretedIRMethod(IRScope method, Visibility visibility, RubyModule implementationClass) {
+        this(method, visibility, implementationClass, false);
+    }
+
+    private Arity calculateArity() {
+        StaticScope s = method.getStaticScope();
+        if (s.getOptionalArgs() > 0 || s.getRestArg() >= 0) return Arity.required(s.getRequiredArgs());
+
+        return Arity.createArity(s.getRequiredArgs());
+    }
+
     @Override
     public Arity getArity() {
-        return method.getStaticScope().getArity();
+        return this.arity;
     }
 
     @Override
     public IRubyObject call(ThreadContext context, IRubyObject self, RubyModule clazz, String name, IRubyObject[] args, Block block) {
-        try {
         if (Interpreter.isDebug()) {
             // FIXME: name should probably not be "" ever.
             String realName = name == null || "".equals(name) ? method.getName() : name;
@@ -81,13 +90,8 @@ public class InterpretedIRMethod extends DynamicMethod {
             context.popFrame();
             context.postMethodScopeOnly();
         }
-        } catch (NullPointerException e) {
-            e.printStackTrace();
-            
-            return null;
-        }
     }
-
+    
     @Override
     public DynamicMethod dup() {
         return new InterpretedIRMethod(method, visibility, implementationClass);

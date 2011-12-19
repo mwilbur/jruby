@@ -3,20 +3,16 @@ package org.jruby.interpreter;
 import java.util.List;
 
 import org.jruby.Ruby;
-import org.jruby.RubyArray;
 import org.jruby.RubyInstanceConfig;
 import org.jruby.RubyModule;
-import org.jruby.RubyNil;
-import org.jruby.RubyProc;
 import org.jruby.ast.Node;
 import org.jruby.ast.RootNode;
 import org.jruby.compiler.ir.IRBuilder;
 import org.jruby.compiler.ir.IRMethod;
 import org.jruby.compiler.ir.IRModule;
 import org.jruby.compiler.ir.IREvalScript;
-import org.jruby.compiler.ir.IRExecutionScope;
-import org.jruby.compiler.ir.IRClosure;
 import org.jruby.compiler.ir.IRScope;
+import org.jruby.compiler.ir.IRClosure;
 import org.jruby.compiler.ir.IRScript;
 import org.jruby.compiler.ir.instructions.CallBase;
 import org.jruby.compiler.ir.instructions.CopyInstr;
@@ -24,12 +20,8 @@ import org.jruby.compiler.ir.instructions.JumpInstr;
 import org.jruby.compiler.ir.instructions.JumpIndirectInstr;
 import org.jruby.compiler.ir.instructions.ReceiveArgBase;
 import org.jruby.compiler.ir.instructions.ReceiveArgumentInstruction;
-import org.jruby.compiler.ir.instructions.ReceiveRestArgInstr;
-import org.jruby.compiler.ir.instructions.ReceiveClosureInstr;
 import org.jruby.compiler.ir.instructions.ReceiveClosureArgInstr;
-import org.jruby.compiler.ir.instructions.ReceiveClosureRestArgInstr;
 import org.jruby.compiler.ir.instructions.ReceiveOptionalArgumentInstr;
-import org.jruby.compiler.ir.instructions.ReceiveExceptionInstr;
 import org.jruby.compiler.ir.instructions.LineNumberInstr;
 import org.jruby.compiler.ir.instructions.ReturnInstr;
 import org.jruby.compiler.ir.instructions.ClosureReturnInstr;
@@ -40,7 +32,6 @@ import org.jruby.compiler.ir.instructions.BranchInstr;
 import org.jruby.compiler.ir.instructions.Instr;
 import org.jruby.compiler.ir.instructions.ResultInstr;
 import org.jruby.compiler.ir.instructions.jruby.CheckArityInstr;
-import org.jruby.compiler.ir.operands.BooleanLiteral;
 import org.jruby.compiler.ir.operands.IRException;
 import org.jruby.compiler.ir.operands.Label;
 import org.jruby.compiler.ir.operands.Nil;
@@ -57,7 +48,6 @@ import org.jruby.parser.StaticScope;
 import org.jruby.internal.runtime.methods.InterpretedIRMethod;
 import org.jruby.runtime.Block;
 import org.jruby.runtime.Block.Type;
-import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.RubyEvent;
 import org.jruby.runtime.Arity;
 import org.jruby.runtime.DynamicScope;
@@ -75,14 +65,6 @@ public class Interpreter {
         return RubyInstanceConfig.IR_DEBUG;
     }
 
-    public static IRubyObject interpret(Ruby runtime, Node rootNode, IRubyObject self) {
-        IRScope scope = new IRBuilder().buildRoot((RootNode) rootNode);
-        scope.prepareForInterpretation();
-//        scope.runCompilerPass(new CallSplitter());
-
-        return interpretTop(runtime, scope, self);
-    }
-
     public static IRubyObject interpretCommonEval(Ruby runtime, String file, int lineNumber, RootNode rootNode, IRubyObject self, Block block) {
         // SSS FIXME: Weirdness here.  We cannot get the containing IR scope from ss because of static-scope wrapping that is going on
         // 1. In all cases, DynamicScope.getEvalScope wraps the executing static scope in a new local scope.
@@ -95,7 +77,7 @@ public class Interpreter {
         IRScope containingIRScope = ((IRStaticScope)ss.getEnclosingScope()).getIRScope();
         if (containingIRScope == null) containingIRScope = ((IRStaticScope)ss.getEnclosingScope().getEnclosingScope()).getIRScope();
 
-        IREvalScript evalScript = new IRBuilder().buildEvalRoot(ss, (IRExecutionScope) containingIRScope, file, lineNumber, rootNode);
+        IREvalScript evalScript = new IRBuilder().buildEvalRoot(ss, containingIRScope, file, lineNumber, rootNode);
         evalScript.prepareForInterpretation();
 //        evalScript.runCompilerPass(new CallSplitter());
         ThreadContext context = runtime.getCurrentContext(); 
@@ -124,12 +106,8 @@ public class Interpreter {
         }
     }
 
-    // SSS FIXME: We have two different 'prepareForInterpretation' methods
-    // one in IRScopeImpl, and another in CFG.  See if they can be merged into one
-    public static IRubyObject interpretTop(Ruby runtime, IRScope scope, IRubyObject self) {
-        assert scope instanceof IRScript : "Must be an IRScript scope at Top!!!";
-
-        IRScript root = (IRScript) scope;
+    public static IRubyObject interpret(Ruby runtime, Node rootNode, IRubyObject self) {
+        IRScript root = (IRScript) new IRBuilder().buildRoot((RootNode) rootNode);
 
         // We get the live object ball rolling here.  This give a valid value for the top
         // of this lexical tree.  All new scope can then retrieve and set based on lexical parent.
@@ -145,8 +123,7 @@ public class Interpreter {
 
         try {
             runBeginEndBlocks(root.getBeginBlocks(), context, self, null); // FIXME: No temp vars yet...not needed?
-            IRMethod rootMethod = root.getRootClass().getRootMethod();
-            InterpretedIRMethod method = new InterpretedIRMethod(rootMethod, currModule, true);
+            InterpretedIRMethod method = new InterpretedIRMethod(root, currModule, true);
             IRubyObject rv =  method.call(context, self, currModule, "", IRubyObject.NULL_ARRAY);
             runBeginEndBlocks(root.getEndBlocks(), context, self, null); // FIXME: No temp vars yet...not needed?
             if (isDebug()) LOG.info("-- Interpreted instructions: {}", interpInstrsCount);
@@ -157,7 +134,7 @@ public class Interpreter {
     }
 
     public static IRubyObject interpret(ThreadContext context, IRubyObject self, 
-            IRExecutionScope scope, IRubyObject[] args, Block block, Block.Type blockType) {
+            IRScope scope, IRubyObject[] args, Block block, Block.Type blockType) {
         boolean debug = isDebug();
         boolean inClosure = (scope instanceof IRClosure);
         Instr[] instrs = scope.prepareInstructionsForInterpretation();
@@ -414,7 +391,7 @@ public class Interpreter {
     /*
      * Handle non-local returns (ex: when nested in closures, root scopes of module/class/sclass bodies)
      */
-    private static void handleNonLocalReturn(ThreadContext context, IRExecutionScope scope, ReturnInstr returnInstr, IRubyObject returnValue, boolean inClosure) {
+    private static void handleNonLocalReturn(ThreadContext context, IRScope scope, ReturnInstr returnInstr, IRubyObject returnValue, boolean inClosure) {
         IRMethod methodToReturnFrom = returnInstr.methodToReturnFrom;
 
         if (inClosure) {
@@ -443,15 +420,15 @@ public class Interpreter {
         }        
     }
 
-    private static IRubyObject handleReturnJumpInClosure(IRExecutionScope scope, IRReturnJump rj, Type blockType) throws IRReturnJump {
+    private static IRubyObject handleReturnJumpInClosure(IRScope scope, IRReturnJump rj, Type blockType) throws IRReturnJump {
         // - If we are in a lambda or if we are in the method scope we are supposed to return from, stop propagating
-        if (inLambda(blockType) || (rj.methodToReturnFrom == scope)) return (IRubyObject) rj.returnValue;
+        if (inNonMethodBodyLambda(scope, blockType) || (rj.methodToReturnFrom == scope)) return (IRubyObject) rj.returnValue;
 
         // - If not, Just pass it along!
         throw rj;
     }
 
-    private static void handleBreakJumpInEval(ThreadContext context, IRExecutionScope scope, IRBreakJump bj, Type blockType, boolean inClosure) throws RaiseException, IRBreakJump {
+    private static void handleBreakJumpInEval(ThreadContext context, IRScope scope, IRBreakJump bj, Type blockType, boolean inClosure) throws RaiseException, IRBreakJump {
         bj.breakInEval = false;  // Clear eval flag
 
         // Error
@@ -466,7 +443,7 @@ public class Interpreter {
         throw bj;
     }
 
-    public static IRubyObject INTERPRET_METHOD(ThreadContext context, IRExecutionScope scope, 
+    public static IRubyObject INTERPRET_METHOD(ThreadContext context, IRScope scope, 
         IRubyObject self, String name, RubyModule implClass, IRubyObject[] args, Block block, Block.Type blockType, boolean isTraceable) {
         Ruby runtime = context.getRuntime();
         boolean syntheticMethod = name == null || name.equals("");
@@ -483,6 +460,15 @@ public class Interpreter {
                 if (!syntheticMethod) ThreadContext.popBacktrace(context);
             }
         }
+    }
+    
+    private static boolean inNonMethodBodyLambda(IRScope scope, Block.Type blockType) {
+        // SSS FIXME: Hack! AST interpreter and JIT compiler marks a proc's static scope as
+        // an argument scope if it is used to define a method's body via :define_method.
+        // Since that is exactly what we want to figure out here, am just using that flag here.
+        // But, this is ugly (as is the original hack in the current runtime).  What is really
+        // needed is a new block type -- a block that is used to define a method body.
+        return blockType == Block.Type.LAMBDA && !scope.getStaticScope().isArgumentScope();
     }
     
     private static boolean inLambda(Block.Type blockType) {
