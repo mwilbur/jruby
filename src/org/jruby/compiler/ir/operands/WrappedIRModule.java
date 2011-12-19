@@ -1,21 +1,21 @@
 package org.jruby.compiler.ir.operands;
 
-import org.jruby.compiler.ir.IRModule;
+import org.jruby.compiler.ir.IRBody;
 import org.jruby.parser.StaticScope;
 import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 
 public class WrappedIRModule extends Constant {
-    public static final WrappedIRModule CURRENT_MODULE = new WrappedIRModule(null);
+    private final IRBody module;
 
-    private final IRModule module;
-
-    public WrappedIRModule(IRModule scope) {
+    public WrappedIRModule(IRBody scope) {
         this.module = scope;
+        
+        assert module != null: "We should never wrap nothing";
     }
 
-    public IRModule getModule() {
+    public IRBody getModule() {
         return module;
     }
 
@@ -26,15 +26,8 @@ public class WrappedIRModule extends Constant {
 
     @Override
     public Object retrieve(ThreadContext context, IRubyObject self, DynamicScope currDynScope, Object[] temp) {
-        StaticScope ssc = (module == null) ? currDynScope.getStaticScope() : module.getStaticScope();
-        if (ssc != null) {
-            return ssc.getModule();
-        } else if (module.isACoreClass()) {
-            // static scope would be null for core classes
-            return module.getCoreClassModule(context.getRuntime());
-        } else {
-            // IR/Interpretation BUG?
-            return null;
-        }
+        StaticScope staticScope = module.getStaticScope();
+
+        return staticScope != null ? staticScope.getModule() : context.runtime.getClass(module.getName());
     }
 }

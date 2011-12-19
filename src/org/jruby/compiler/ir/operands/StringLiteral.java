@@ -1,7 +1,6 @@
 package org.jruby.compiler.ir.operands;
 
 import org.jruby.util.ByteList;
-import org.jruby.compiler.ir.IRClass;
 import org.jruby.RubyString;
 import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.ThreadContext;
@@ -20,11 +19,6 @@ public class StringLiteral extends Constant {
     @Override
     public String toString() {
         return "\"" + _str_value + "\"";
-    }
-
-    @Override
-    public IRClass getTargetClass() {
-        return IRClass.getCoreClass("String");
     }
 
     // SSS: Yes, this is non-atomic because you cannot create multiple copies of the string-literal by propagating it.

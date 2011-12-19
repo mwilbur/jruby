@@ -341,15 +341,13 @@ public class LoadService {
     };
 
     private RequireState requireCommon(String requireName, boolean circularRequireWarning) {
-        ReentrantLock requireLock = null;
-        try {
-            requireLock = acquireRequireLock(requireName);
-            if (requireLock == null) {
-                if (circularRequireWarning && runtime.isVerbose() && runtime.is1_9()) {
-                    warnCircularRequire(requireName);
-                }
-                return RequireState.CIRCULAR;
+        if (!requireLocks.lock(requireName)) {
+            if (circularRequireWarning && runtime.isVerbose() && runtime.is1_9()) {
+                warnCircularRequire(requireName);
             }
+            return RequireState.CIRCULAR;
+        }
+        try {
             if (!runtime.getProfile().allowRequire(requireName)) {
                 throw runtime.newLoadError("no such file to load -- " + requireName);
             }
@@ -368,39 +366,79 @@ public class LoadService {
                 loadTimer.endLoad(requireName, startTime);
             }
         } finally {
-            if (requireLock != null) {
-                releaseRequireLock(requireName, requireLock);
-            }
+            requireLocks.unlock(requireName);
         }
     }
+    
+    protected final RequireLocks requireLocks = new RequireLocks();
 
-    private ReentrantLock acquireRequireLock(String requireName) {
-        ReentrantLock requireLock;
-        
-        synchronized (requireLocks) {
-            requireLock = requireLocks.get(requireName);
-            if (requireLock == null) {
-                if (runtime.getInstanceConfig().isGlobalRequireLock()) {
-                    requireLock = globalRequireLock;
-                } else {
-                    requireLock = new ReentrantLock();
+    private class RequireLocks {
+        private final Map<String, ReentrantLock> pool;
+        // global lock for require must be fair
+        private final ReentrantLock globalLock;
+
+        private RequireLocks() {
+            this.pool = new HashMap<String, ReentrantLock>();
+            this.globalLock = new ReentrantLock(true);
+        }
+
+        /**
+         * Get exclusive lock for the specified requireName. Acquire sync object
+         * for the requireName from the pool, then try to lock it. NOTE: This
+         * lock is not fair for now.
+         * 
+         * @param requireName
+         *            just a name for the lock.
+         * @return If the sync object already locked by current thread, it just
+         *         returns false without getting a lock. Otherwise true.
+         */
+        private boolean lock(String requireName) {
+            ReentrantLock lock;
+
+            while (true) {
+                synchronized (pool) {
+                    lock = pool.get(requireName);
+                    if (lock == null) {
+                        if (runtime.getInstanceConfig().isGlobalRequireLock()) {
+                            lock = globalLock;
+                        } else {
+                            lock = new ReentrantLock();
+                        }
+                        pool.put(requireName, lock);
+                    } else if (lock.isHeldByCurrentThread()) {
+                        return false;
+                    }
                 }
-                requireLocks.put(requireName, requireLock);
-            } else if (requireLock.isHeldByCurrentThread()) {
-                return null;
+
+                lock.lock();
+
+                // repeat until locked object still in requireLocks.
+                synchronized (pool) {
+                    if (pool.get(requireName) == lock) {
+                        // the object is locked && the lock is in the pool
+                        return true;
+                    }
+                    // go next try
+                    lock.unlock();
+                }
             }
         }
 
-        requireLock.lock();
-        return requireLock;
-    }
-
-    private void releaseRequireLock(String requireName, ReentrantLock requireLock) {
-        synchronized (requireLocks) {
-            if (requireLock.isLocked()) {
-                requireLock.unlock();
+        /**
+         * Unlock the lock for the specified requireName.
+         * 
+         * @param requireName
+         *            name of the lock to be unlocked.
+         */
+        private void unlock(String requireName) {
+            synchronized (pool) {
+                ReentrantLock lock = pool.get(requireName);
+                if (lock != null) {
+                    assert lock.isHeldByCurrentThread();
+                    lock.unlock();
+                    pool.remove(requireName);
+                }
             }
-            requireLocks.remove(requireName);
         }
     }
 
@@ -422,9 +460,6 @@ public class LoadService {
     public boolean smartLoad(String file) {
         return require(file);
     }
-
-    protected final Map<String, ReentrantLock> requireLocks = new HashMap<String, ReentrantLock>();
-    protected final ReentrantLock globalRequireLock = new ReentrantLock(true);
 
     private boolean smartLoadInternal(String file) {
         checkEmptyLoad(file);
@@ -1143,43 +1178,18 @@ public class LoadService {
     protected LoadServiceResource tryResourceFromJarURLWithLoadPath(String namePlusSuffix, String loadPathEntry) {
         LoadServiceResource foundResource = null;
 
-        JarFile current = jarFiles.get(loadPathEntry);
-        boolean isFileJarUrl = loadPathEntry.startsWith("file:") && loadPathEntry.indexOf("!/") != -1;
-        String after = isFileJarUrl ? loadPathEntry.substring(loadPathEntry.indexOf("!/") + 2) + "/" : "";
-        String before = isFileJarUrl ? loadPathEntry.substring(0, loadPathEntry.indexOf("!/")) : loadPathEntry;
+        String[] urlParts = splitJarUrl(loadPathEntry);
+        String jarFileName = urlParts[0];
+        String entryPath = urlParts[1];
 
-        if(null == current) {
-            try {
-                if(loadPathEntry.startsWith("jar:")) {
-                    current = new JarFile(loadPathEntry.substring(4));
-                } else if (loadPathEntry.endsWith(".jar")) {
-                    current = new JarFile(loadPathEntry);
-                } else {
-                    current = new JarFile(loadPathEntry.substring(5,loadPathEntry.indexOf("!/")));
-                }
-                jarFiles.put(loadPathEntry,current);
-            } catch (ZipException ignored) {
-                if (runtime.getInstanceConfig().isDebug()) {
-                    LOG.info("ZipException trying to access " + loadPathEntry + ", stack trace follows:");
-                    ignored.printStackTrace(runtime.getErr());
-                }
-            } catch (FileNotFoundException ignored) {
-            } catch (IOException e) {
-                throw runtime.newIOErrorFromException(e);
-            }
-        }
-        String canonicalEntry = after+namePlusSuffix;
+        JarFile current = getJarFile(jarFileName);
         if (current != null ) {
+            String canonicalEntry = (entryPath.length() > 0 ? entryPath + "/" : "") + namePlusSuffix;
             debugLogTry("resourceFromJarURLWithLoadPath", current.getName() + "!/" + canonicalEntry);
             if (current.getJarEntry(canonicalEntry) != null) {
                 try {
-                    if (loadPathEntry.endsWith(".jar")) {
-                        foundResource = new LoadServiceResource(new URL("jar:file:" + loadPathEntry + "!/" + canonicalEntry), "/" + namePlusSuffix);
-                    } else if (loadPathEntry.startsWith("file:")) {
-                        foundResource = new LoadServiceResource(new URL("jar:" + before + "!/" + canonicalEntry), loadPathEntry + "/" + namePlusSuffix);
-                    } else {
-                        foundResource =  new LoadServiceResource(new URL("jar:file:" + loadPathEntry.substring(4) + "!/" + namePlusSuffix), loadPathEntry + namePlusSuffix);
-                    }
+                    String resourceUrl = "jar:file:" + jarFileName + "!/" + canonicalEntry;
+                    foundResource = new LoadServiceResource(new URL(resourceUrl), resourceUrl);
                     debugLogFound(foundResource);
                 } catch (MalformedURLException e) {
                     throw runtime.newIOErrorFromException(e);
@@ -1190,8 +1200,47 @@ public class LoadService {
         return foundResource;
     }
 
+    public JarFile getJarFile(String jarFileName) {
+        JarFile jarFile = jarFiles.get(jarFileName);
+        if(null == jarFile) {
+            try {
+                jarFile = new JarFile(jarFileName);
+                jarFiles.put(jarFileName, jarFile);
+            } catch (ZipException ignored) {
+                if (runtime.getInstanceConfig().isDebug()) {
+                    LOG.info("ZipException trying to access " + jarFileName + ", stack trace follows:");
+                    ignored.printStackTrace(runtime.getErr());
+                }
+            } catch (FileNotFoundException ignored) {
+            } catch (IOException e) {
+                throw runtime.newIOErrorFromException(e);
+            }
+        }
+        return jarFile;
+    }
+
     protected boolean loadPathLooksLikeJarURL(String loadPathEntry) {
-        return loadPathEntry.startsWith("jar:") || loadPathEntry.endsWith(".jar") || (loadPathEntry.startsWith("file:") && loadPathEntry.indexOf("!/") != -1);
+        return loadPathEntry.startsWith("jar:") || loadPathEntry.endsWith(".jar") || (loadPathEntry.startsWith("file:") && loadPathEntry.indexOf("!") != -1);
+    }
+    
+    private String[] splitJarUrl(String loadPathEntry) {
+        int idx = loadPathEntry.indexOf("!");
+        if (idx == -1) {
+            return new String[]{loadPathEntry, ""};
+        }
+
+        String filename = loadPathEntry.substring(0, idx);
+        String entry = idx + 2 < loadPathEntry.length() ? loadPathEntry.substring(idx + 2) : "";
+
+        if(filename.startsWith("jar:")) {
+            filename = filename.substring(4);
+        }
+        
+        if(filename.startsWith("file:")) {
+            filename = filename.substring(5);
+        }
+        
+        return new String[]{filename, entry};
     }
 
     protected LoadServiceResource tryResourceFromLoadPath( String namePlusSuffix,String loadPathEntry) throws RaiseException {

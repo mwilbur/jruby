@@ -25,7 +25,8 @@ public class CoroutineFiber extends Fiber {
     private CoroutineFiberState state;
     private CoroutineFiber lastFiber;
     private Coroutine coro;
-    private ThreadContext context;  
+    private ThreadContext context;
+    private JumpException coroException;
 
     public CoroutineFiber(Ruby runtime, RubyClass type, Coroutine coro) {
         super(runtime, type);
@@ -51,16 +52,8 @@ public class CoroutineFiber extends Fiber {
                     try {
                         // first resume, dive into the block
                         slot = block.yieldArray(CoroutineFiber.this.context, slot, null, null);
-                    } catch (JumpException.RetryJump rtry) {
-                        // FIXME: technically this should happen before the block is executed
-                        parent.raise(new IRubyObject[]{runtime.newSyntaxError("Invalid retry").getException()}, Block.NULL_BLOCK);
-                    } catch (JumpException.BreakJump brk) {
-                        parent.raise(new IRubyObject[]{runtime.newLocalJumpError(Reason.BREAK, runtime.getNil(), "break from proc-closure").getException()}, Block.NULL_BLOCK);
-                    } catch (JumpException.ReturnJump ret) {
-                        parent.raise(new IRubyObject[]{runtime.newLocalJumpError(Reason.RETURN, runtime.getNil(), "unexpected return").getException()}, Block.NULL_BLOCK);
-                    } catch (RaiseException re) {
-                        // re-raise exception in parent thread
-                        parent.raise(new IRubyObject[]{re.getException()}, Block.NULL_BLOCK);
+                    } catch (JumpException t) {
+                        coroException = t;
                     } finally {
                         state = CoroutineFiberState.FINISHED;
                     }
@@ -71,42 +64,55 @@ public class CoroutineFiber extends Fiber {
 
     protected IRubyObject resumeOrTransfer(ThreadContext context, IRubyObject arg, boolean transfer) {
         CoroutineFiber current = (CoroutineFiber)context.getFiber();
+        Ruby runtime = context.runtime;
         slot = arg;
-        try {
-            switch (state) {
-                case SUSPENDED_YIELD:
-                    if (transfer) {
-                        current.state = CoroutineFiberState.SUSPENDED_TRANSFER;
-                    } else {
-                        current.state = CoroutineFiberState.SUSPENDED_RESUME;
-                        lastFiber = (CoroutineFiber)context.getFiber();
-                    }
-                    state = CoroutineFiberState.RUNNING;
-                    context.getRuntime().getThreadService().setCurrentContext(context);
-                    context.setThread(context.getThread());
-                    Coroutine.yieldTo(coro);
-                    break;
-                case SUSPENDED_TRANSFER:
-                    if (!transfer) {
-                        throw context.getRuntime().newFiberError("double resume");
-                    }
-                    current.state = CoroutineFiberState.SUSPENDED_TRANSFER;
-                    state = CoroutineFiberState.RUNNING;
-                    context.getRuntime().getThreadService().setCurrentContext(context);
-                    context.setThread(context.getThread());
-                    Coroutine.yieldTo(coro);
-                    break;
-                case FINISHED:
-                    throw context.getRuntime().newFiberError("dead fiber called");
-                default:
-                    throw context.getRuntime().newFiberError("fiber in an invalid state: " + state);
-            }
-        } catch (OutOfMemoryError oome) {
-            if (oome.getMessage().equals("unable to create new native thread")) {
-                throw context.runtime.newThreadError("too many threads, can't create a new Fiber");
-            }
-            throw oome;
+
+        if (context.getThread() != parent) {
+            throw context.runtime.newFiberError("resuming fiber from different thread: " + this);
         }
+
+        switch (state) {
+            case SUSPENDED_YIELD:
+                if (transfer) {
+                    current.state = CoroutineFiberState.SUSPENDED_TRANSFER;
+                } else {
+                    current.state = CoroutineFiberState.SUSPENDED_RESUME;
+                    lastFiber = (CoroutineFiber)context.getFiber();
+                }
+                state = CoroutineFiberState.RUNNING;
+                runtime.getThreadService().setCurrentContext(context);
+                context.setThread(context.getThread());
+                Coroutine.yieldTo(coro);
+                break;
+            case SUSPENDED_TRANSFER:
+                if (!transfer) {
+                    throw runtime.newFiberError("double resume");
+                }
+                current.state = CoroutineFiberState.SUSPENDED_TRANSFER;
+                state = CoroutineFiberState.RUNNING;
+                runtime.getThreadService().setCurrentContext(context);
+                context.setThread(context.getThread());
+                Coroutine.yieldTo(coro);
+                break;
+            case FINISHED:
+                throw runtime.newFiberError("dead fiber called");
+            default:
+                throw runtime.newFiberError("fiber in an invalid state: " + state);
+        }
+
+        try {
+            if (coroException != null) {
+                throw coroException;
+            }
+        } catch (JumpException.RetryJump rtry) {
+            // FIXME: technically this should happen before the block is executed
+            context.getThread().raise(new IRubyObject[]{runtime.newSyntaxError("Invalid retry").getException()}, Block.NULL_BLOCK);
+        } catch (JumpException.BreakJump brk) {
+            context.getThread().raise(new IRubyObject[]{runtime.newLocalJumpError(Reason.BREAK, runtime.getNil(), "break from proc-closure").getException()}, Block.NULL_BLOCK);
+        } catch (JumpException.ReturnJump ret) {
+            context.getThread().raise(new IRubyObject[]{runtime.newLocalJumpError(Reason.RETURN, runtime.getNil(), "unexpected return").getException()}, Block.NULL_BLOCK);
+        }
+
         // back from fiber, poll events and proceed out of resume
         context.pollThreadEvents();
         return slot;
