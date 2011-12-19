@@ -106,7 +106,7 @@ public class Java implements Library {
 
     public void load(Ruby runtime, boolean wrap) throws IOException {
         createJavaModule(runtime);
-        runtime.getLoadService().require("builtin/javasupport");
+        runtime.getLoadService().require("jruby/java");
         
         // rewite ArrayJavaProxy superclass to point at Object, so it inherits Object behaviors
         RubyClass ajp = runtime.getClass("ArrayJavaProxy");
@@ -874,7 +874,7 @@ public class Java implements Library {
     }
 
     private static RubyModule getProxyOrPackageUnderPackage(ThreadContext context, final Ruby runtime,
-            RubyModule parentPackage, String sym) throws Exception {
+            RubyModule parentPackage, String sym) {
         IRubyObject packageNameObj = parentPackage.getInstanceVariable("@package_name");
         if (packageNameObj == null) {
             throw runtime.newArgumentError("invalid package module");
@@ -930,7 +930,7 @@ public class Java implements Library {
                     // we'll try as a package
                     return getJavaPackageModule(runtime, fullName);
                 } else {
-                    throw e;
+                    throw runtime.newNameError("uppercase package names not accessible this way (`" + fullName + "')", fullName);
                 }
             }
 
@@ -941,7 +941,7 @@ public class Java implements Library {
             ThreadContext context,
             IRubyObject recv,
             IRubyObject parentPackage,
-            IRubyObject sym) throws Exception {
+            IRubyObject sym) {
         Ruby runtime = recv.getRuntime();
         if (!(parentPackage instanceof RubyModule)) {
             throw runtime.newTypeError(parentPackage, runtime.getModule());
@@ -988,13 +988,16 @@ public class Java implements Library {
         } else {
             RubyModule javaModule = null;
             try {
-                javaModule = getProxyClass(runtime, JavaClass.forNameQuiet(runtime, name));
-            } catch (RaiseException re) { /* not a class */
-                RubyException rubyEx = re.getException();
-                if (rubyEx.kind_of_p(context, runtime.getStandardError()).isTrue()) {
-                    RuntimeHelpers.setErrorInfo(runtime, runtime.getNil());
-                }
-            } catch (Exception e) { /* not a class */ }
+                // we do loadJavaClass here to handle things like LinkageError through
+                Class cls = runtime.getJavaSupport().loadJavaClass(name);
+                javaModule = getProxyClass(runtime, JavaClass.get(runtime, cls));
+            } catch (ExceptionInInitializerError eiie) {
+                throw runtime.newNameError("cannot initialize Java class " + name, name, eiie, false);
+            } catch (LinkageError le) {
+                throw runtime.newNameError("cannot link Java class " + name, name, le, false);
+            } catch (SecurityException se) {
+                throw runtime.newSecurityError(se.getLocalizedMessage());
+            } catch (ClassNotFoundException e) { /* not a class */ }
 
             // upper-case package name
             // TODO: top-level upper-case package was supported in the previous (Ruby-based)

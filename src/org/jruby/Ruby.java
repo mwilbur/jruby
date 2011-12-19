@@ -107,7 +107,6 @@ import org.jruby.runtime.load.Library;
 import org.jruby.runtime.load.LoadService;
 import org.jruby.runtime.profile.IProfileData;
 import org.jruby.runtime.scope.ManyVarsDynamicScope;
-import org.jruby.util.BuiltinScript;
 import org.jruby.util.ByteList;
 import org.jruby.util.IOInputStream;
 import org.jruby.util.IOOutputStream;
@@ -134,12 +133,12 @@ import java.util.regex.Pattern;
 import org.jruby.RubyInstanceConfig.CompileMode;
 import org.jruby.ast.RootNode;
 import org.jruby.ast.executable.RuntimeCache;
+import org.jruby.compiler.ir.IRManager;
 import org.jruby.runtime.opto.Invalidator;
 import org.jruby.evaluator.ASTInterpreter;
 import org.jruby.exceptions.Unrescuable;
 import org.jruby.ext.coverage.CoverageData;
 import org.jruby.ext.jruby.JRubyConfigLibrary;
-import org.jruby.ext.jruby.JRubyLibrary;
 import org.jruby.internal.runtime.methods.DynamicMethod;
 import org.jruby.interpreter.Interpreter;
 import org.jruby.javasupport.util.RuntimeHelpers;
@@ -1013,7 +1012,7 @@ public final class Ruby {
     /** 
      * Retrieve the current safe level.
      * 
-     * @see org.jruby.Ruby#setSaveLevel
+     * @see org.jruby.Ruby#setSafeLevel
      */
     public int getSafeLevel() {
         return this.safeLevel;
@@ -1029,8 +1028,8 @@ public final class Ruby {
      * 3 - all generated objects are tainted
      * 4 - no global (non-tainted) variable modification/no direct output
      * 
-     * The safe level is set using $SAFE in Ruby code. It is not particularly
-     * well supported in JRuby.
+     * The safe level is set using $SAFE in Ruby code. It is not supported
+     * in JRuby.
     */
     public void setSafeLevel(int safeLevel) {
         this.safeLevel = safeLevel;
@@ -1114,6 +1113,8 @@ public final class Ruby {
 
         // Initialize all the core classes
         bootstrap();
+        
+        irManager = new IRManager();
         
         // Initialize the "dummy" class used as a marker
         dummyClass = new RubyClass(this, classClass);
@@ -1528,6 +1529,15 @@ public final class Ruby {
             addLazyBuiltin("fiber.rb", "fiber", "org.jruby.ext.fiber.FiberExtLibrary");
             addLazyBuiltin("psych.jar", "psych", "org.jruby.ext.psych.PsychLibrary");
             addLazyBuiltin("coverage.jar", "coverage", "org.jruby.ext.coverage.CoverageLibrary");
+
+            // TODO: implement something for these?
+            Library dummy = new Library() {
+                public void load(Ruby runtime, boolean wrap) throws IOException {
+                    // dummy library that does nothing right now
+                }
+            };
+            addBuiltinIfAllowed("continuation.rb", dummy);
+            addBuiltinIfAllowed("io/nonblock.rb", dummy);
         }
 
         if(RubyInstanceConfig.NATIVE_NET_PROTOCOL) {
@@ -1579,6 +1589,10 @@ public final class Ruby {
 
     public void setRespondToMethod(Object rtm) {
         this.respondToMethod = rtm;
+    }
+    
+    public IRManager getIRManager() {
+        return irManager;
     }
 
     /** Getter for property rubyTopSelf.
@@ -4094,14 +4108,14 @@ public final class Ruby {
     private GlobalVariable recordSeparatorVar;
 
     // former java.lang.System concepts now internalized for MVM
-    private String currentDirectory;
+    private volatile String currentDirectory;
 
     // The "current line" global variable
-    private int currentLine = 0;
+    private volatile int currentLine = 0;
 
-    private IRubyObject argsFile;
+    private volatile IRubyObject argsFile;
 
-    private long startTime = System.currentTimeMillis();
+    private final long startTime = System.currentTimeMillis();
 
     private final RubyInstanceConfig config;
     private final boolean is1_9;
@@ -4249,4 +4263,6 @@ public final class Ruby {
     private final Random random;
     
     private final StaticScopeFactory staticScopeFactory;
+    
+    private IRManager irManager;
 }

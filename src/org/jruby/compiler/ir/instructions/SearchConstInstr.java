@@ -1,6 +1,6 @@
 package org.jruby.compiler.ir.instructions;
 
-import org.jruby.compiler.ir.IRModule;
+import org.jruby.compiler.ir.IRBody;
 import org.jruby.compiler.ir.Operation;
 import org.jruby.compiler.ir.operands.Operand;
 import org.jruby.compiler.ir.operands.UndefinedValue;
@@ -22,11 +22,15 @@ import org.jruby.runtime.builtin.IRubyObject;
 // this call to the parent scope.
 
 public class SearchConstInstr extends Instr implements ResultInstr {
-    IRModule definingModule;
+    IRBody definingModule;
     String constName;
     private Variable result;
 
-    public SearchConstInstr(Variable result, IRModule definingModule, String constName) {
+    // Constant caching 
+    private volatile transient Object cachedConstant = null;
+    private Object generation = -1;
+
+    public SearchConstInstr(Variable result, IRBody definingModule, String constName) {
         super(Operation.SEARCH_CONST);
         
         assert result != null: "SearchConstInstr result is null";
@@ -57,20 +61,34 @@ public class SearchConstInstr extends Instr implements ResultInstr {
         return super.toString() + "(" + (definingModule == null ? "-dynamic-" : definingModule.getName()) + "," + constName  + ")";
     }
 
-    @Override
-    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
+    private Object cache(DynamicScope currDynScope, Ruby runtime, Object constant) {
         StaticScope staticScope = definingModule == null ? currDynScope.getStaticScope() : definingModule.getStaticScope();
-        Ruby runtime = context.getRuntime();
         RubyModule object = runtime.getObject();
-        Object constant;
-        
         if (staticScope == null) { // FIXME: Object scope has no staticscope yet
             constant = object.getConstant(constName);
         } else {
             constant = staticScope.getConstant(runtime, constName, object);
         }
+        if (constant == null) {
+            constant = UndefinedValue.UNDEFINED;
+        } else {
+            // recache
+            generation = runtime.getConstantInvalidator().getData();
+            cachedConstant = constant;
+        }
+        return constant;
+    }
 
-        if (constant == null) constant = UndefinedValue.UNDEFINED;
-		  return constant;
+    private boolean isCached(Ruby runtime, Object value) {
+        return value != null && generation == runtime.getConstantInvalidator().getData();
+    }
+    
+    @Override
+    public Object interpret(ThreadContext context, DynamicScope currDynScope, IRubyObject self, Object[] temp, Block block) {
+        Ruby runtime = context.getRuntime();
+        Object constant = cachedConstant; // Store to temp so it does null out on us mid-stream
+        if (!isCached(runtime, constant)) constant = cache(currDynScope, runtime, constant);
+
+        return constant;
     }
 }

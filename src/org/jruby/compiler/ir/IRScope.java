@@ -177,9 +177,6 @@ public abstract class IRScope {
     // This lets us implement next/redo/break/retry easily for the non-closure cases
     private Stack<IRLoop> loopStack;
 
-    protected int requiredArgs = 0;
-    protected int optionalArgs = 0;
-    protected int restArg = -1;
     private IRScope lexicalParent;  // Lexical parent scope    
     private StaticScope staticScope;
     private String name;
@@ -212,6 +209,10 @@ public abstract class IRScope {
     
     public void addInstr(Instr i) {
         instructions.add(i);
+    }
+
+    public LocalVariable getNewFlipStateVariable() {
+        return getLocalVariable("%flip_" + allocateNextPrefixedName("%flip"), 0);
     }
 
     public void initFlipStateVariable(Variable v, Operand initState) {
@@ -266,13 +267,23 @@ public abstract class IRScope {
         return (IRMethod) current;
     }
     
+    public IRScope getNearestNonClosureScope() {
+        IRScope current = this;
+
+        while (current != null && (current instanceof IRClosure)) {
+            current = current.getLexicalParent();
+        }
+        
+        return current;
+    }
+    
     /**
      * Returns the nearest method from this scope which may be itself (can never be null)
      */
-    public IRModule getNearestModule() {
+    public IRBody getNearestModule() {
         IRScope current = this;
 
-        while (current != null && !((current instanceof IRModule) || (current instanceof IREvalScript))) {
+        while (current != null && !((current instanceof IRBody) || (current instanceof IREvalScript))) {
             current = current.getLexicalParent();
         }
 
@@ -283,7 +294,7 @@ public abstract class IRScope {
             return null;
         }
 
-        return (IRModule) current;
+        return (IRBody) current;
     }
     
 
@@ -301,7 +312,7 @@ public abstract class IRScope {
     public IRScope getTopLevelScope() {
         IRScope current = this;
 
-        while (!(current instanceof IREvalScript) && !(current instanceof IRScript)) {
+        while (current != null && !current.isScriptScope()) {
             current = current.getLexicalParent();
         }
         
@@ -315,16 +326,7 @@ public abstract class IRScope {
 
     public IRMethod getClosestMethodAncestor() {
         IRScope s = this;
-        while (!(s instanceof IRMethod)) {
-            s = s.getLexicalParent();
-        }
-
-        return (IRMethod) s;
-    }
-
-    public IRMethod getClosestNonRootMethodAncestor() {
-        IRScope s = this;
-        while ((s != null) && (!(s instanceof IRMethod) || ((IRMethod)s).isAModuleRootMethod())) {
+        while (s != null && !(s instanceof IRMethod)) {
             s = s.getLexicalParent();
         }
 
@@ -599,16 +601,6 @@ public abstract class IRScope {
     }
      ------------------------------------------ **/
 
-    /**
-     * Closures and Methods have different static scopes.  This returns the
-     * correct instance.
-     *
-     * @param parent scope should be non-null for all closures and null for methods
-     * @return a newly allocated static scope
-     */
-    @Interp
-    protected abstract StaticScope constructStaticScope(StaticScope parent);
-
     public LocalVariable getSelf() {
         return Self.SELF;
     }
@@ -619,9 +611,24 @@ public abstract class IRScope {
         hasUnusedImplicitBlockArg = true;
     }
 
-    public abstract LocalVariable findExistingLocalVariable(String name);
+    public LocalVariable findExistingLocalVariable(String name) {
+        return localVars.getVariable(name);
+    }
 
-    public abstract LocalVariable getLocalVariable(String name, int depth);
+    /**
+     * Find or create a local variable.  By default, scopes are assumed to
+     * only check current depth.  Blocks/Closures override this because they
+     * have special nesting rules.
+     */
+    public LocalVariable getLocalVariable(String name, int scopeDepth) {
+        LocalVariable lvar = findExistingLocalVariable(name);
+        if (lvar == null) {
+            lvar = new LocalVariable(name, scopeDepth, localVars.nextSlot);
+            localVars.putVariable(name, lvar);
+        }
+
+        return lvar;
+    }
 
     protected void initEvalScopeVariableAllocator(boolean reset) {
         if (reset || evalScopeVars == null) evalScopeVars = new LocalVariableAllocator();
@@ -849,7 +856,7 @@ public abstract class IRScope {
 //        }
     }    
     
-    public void inlineMethod(IRMethod method, BasicBlock basicBlock, CallBase call) {
+    public void inlineMethod(IRScope method, BasicBlock basicBlock, CallBase call) {
         depends(cfg());
         
         new CFGInliner(cfg).inlineMethod(method, basicBlock, call);
@@ -909,5 +916,20 @@ public abstract class IRScope {
         nextClosureIndex++;
 
         return nextClosureIndex;
+    }
+    
+    /**
+     * Does this scope represent a method and is it one defined at the root
+     * of a script?
+     */
+    public boolean isBody() {
+        return false;
+    }
+    
+    /**
+     * Is this an eval script or a regular file script?
+     */
+    public boolean isScriptScope() {
+        return false;
     }
 }

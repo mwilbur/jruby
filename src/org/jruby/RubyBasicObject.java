@@ -31,12 +31,14 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.security.AccessControlException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 import org.jruby.anno.JRubyMethod;
 import org.jruby.common.IRubyWarnings.ID;
@@ -227,7 +229,14 @@ public class RubyBasicObject implements Cloneable, IRubyObject, Serializable, Co
      * Path for objects that don't taint and don't enter objectspace.
      */
     public RubyBasicObject(RubyClass metaClass) {
+        assert metaClass != null: "NULL Metaclass!!?!?!";
+
         this.metaClass = metaClass;
+    }
+
+    @Deprecated
+    protected RubyBasicObject(Ruby runtime, RubyClass metaClass, boolean useObjectSpace, boolean canBeTainted) {
+        this(runtime, metaClass, useObjectSpace);
     }
 
     /**
@@ -235,12 +244,6 @@ public class RubyBasicObject implements Cloneable, IRubyObject, Serializable, Co
      * ObjectSpace even when it is on. (notably used by objects being
      * considered immediate, they'll always pass false here)
      */
-    protected RubyBasicObject(Ruby runtime, RubyClass metaClass, boolean useObjectSpace, boolean canBeTainted) {
-        this.metaClass = metaClass;
-
-        if (useObjectSpace) addToObjectSpace(runtime);
-    }
-
     protected RubyBasicObject(Ruby runtime, RubyClass metaClass, boolean useObjectSpace) {
         this.metaClass = metaClass;
 
@@ -288,17 +291,17 @@ public class RubyBasicObject implements Cloneable, IRubyObject, Serializable, Co
      *
      * <ul>
      *  <li>{@link #FALSE_F}</li>
-     *  <li>{@link NIL_F}</li>
-     *  <li>{@link FROZEN_F}</li>
-     *  <li>{@link TAINTED_F}</li>
-     *  <li>{@link USER0_F}</li>
-     *  <li>{@link USER1_F}</li>
-     *  <li>{@link USER2_F}</li>
-     *  <li>{@link USER3_F}</li>
-     *  <li>{@link USER4_F}</li>
-     *  <li>{@link USER5_F}</li>
-     *  <li>{@link USER6_F}</li>
-     *  <li>{@link USER7_F}</li>
+     *  <li>{@link #NIL_F}</li>
+     *  <li>{@link #FROZEN_F}</li>
+     *  <li>{@link #TAINTED_F}</li>
+     *  <li>{@link #USER0_F}</li>
+     *  <li>{@link #USER1_F}</li>
+     *  <li>{@link #USER2_F}</li>
+     *  <li>{@link #USER3_F}</li>
+     *  <li>{@link #USER4_F}</li>
+     *  <li>{@link #USER5_F}</li>
+     *  <li>{@link #USER6_F}</li>
+     *  <li>{@link #USER7_F}</li>
      * </ul>
      *
      * @param flag the actual flag to set or unset.
@@ -318,17 +321,17 @@ public class RubyBasicObject implements Cloneable, IRubyObject, Serializable, Co
      *
      * <ul>
      *  <li>{@link #FALSE_F}</li>
-     *  <li>{@link NIL_F}</li>
-     *  <li>{@link FROZEN_F}</li>
-     *  <li>{@link TAINTED_F}</li>
-     *  <li>{@link USER0_F}</li>
-     *  <li>{@link USER1_F}</li>
-     *  <li>{@link USER2_F}</li>
-     *  <li>{@link USER3_F}</li>
-     *  <li>{@link USER4_F}</li>
-     *  <li>{@link USER5_F}</li>
-     *  <li>{@link USER6_F}</li>
-     *  <li>{@link USER7_F}</li>
+     *  <li>{@link #NIL_F}</li>
+     *  <li>{@link #FROZEN_F}</li>
+     *  <li>{@link #TAINTED_F}</li>
+     *  <li>{@link #USER0_F}</li>
+     *  <li>{@link #USER1_F}</li>
+     *  <li>{@link #USER2_F}</li>
+     *  <li>{@link #USER3_F}</li>
+     *  <li>{@link #USER4_F}</li>
+     *  <li>{@link #USER5_F}</li>
+     *  <li>{@link #USER6_F}</li>
+     *  <li>{@link #USER7_F}</li>
      * </ul>
      *
      * @param flag the flag to get
@@ -519,10 +522,10 @@ public class RubyBasicObject implements Cloneable, IRubyObject, Serializable, Co
     }
 
     /**
-     * Sets whether this object is frozen or not. Shortcut for doing
-     * setFlag(FROZEN_F, frozen).
+     * Sets whether this object is untrusted or not. Shortcut for doing
+     * setFlag(UNTRUSTED_F, untrusted).
      *
-     * @param frozen should this object be frozen?
+     * @param untrusted should this object be frozen?
      */
     public void setUntrusted(boolean untrusted) {
         if (untrusted) {
@@ -807,7 +810,7 @@ public class RubyBasicObject implements Cloneable, IRubyObject, Serializable, Co
     }
 
     /**
-     * @see IRubyObject.toJava
+     * @see IRubyObject#toJava
      */
     public Object toJava(Class target) {
         // for callers that unconditionally pass null retval type (JRUBY-4737)
@@ -955,7 +958,7 @@ public class RubyBasicObject implements Cloneable, IRubyObject, Serializable, Co
 
 
     /**
-     * @see org.jruby.runtime.builtin.IRubyObject#dataWrapStruct()
+     * @see org.jruby.runtime.builtin.IRubyObject#dataWrapStruct(Object)
      */
     public synchronized void dataWrapStruct(Object obj) {
         if (obj == null) {
@@ -1217,32 +1220,90 @@ public class RubyBasicObject implements Cloneable, IRubyObject, Serializable, Co
         return varTable;
     }
 
+    private static final AtomicReferenceFieldUpdater VARTABLE_UPDATER;
+
+    static {
+        AtomicReferenceFieldUpdater updater = null;
+        try {
+            updater = AtomicReferenceFieldUpdater.newUpdater(RubyBasicObject.class, Object[].class, "varTable");
+        } catch (RuntimeException re) {
+            if (re.getCause() instanceof AccessControlException) {
+                // security prevented creation; fall back on synchronized assignment
+            } else {
+                throw re;
+            }
+        }
+        VARTABLE_UPDATER = updater;
+    }
+
+
     /**
      * Get variable table for write purposes. Initializes if uninitialized, and
      * resizes if necessary.
      */
     protected final Object[] getVariableTableForWrite(int index) {
+        if (VARTABLE_UPDATER == null) {
+            return getVariableTableForWriteSynchronized(index);
+        } else {
+            return getVariableTableForWriteAtomic(index);
+        }
+    }
+
+    /**
+     * Get the variable table for write. If it is not set or not of the right size,
+     * synchronize against the object and prepare it accordingly.
+     *
+     * @param index the index of the value soon to be set
+     * @return the var table, ready for setting
+     */
+    private Object[] getVariableTableForWriteSynchronized(int index) {
         Object[] myVarTable = varTable;
-        if (myVarTable == null) {
+        if (myVarTable == null || myVarTable.length <= index) {
             synchronized (this) {
                 myVarTable = varTable;
+
                 if (myVarTable == null) {
-                    if (DEBUG) LOG.debug("allocating varTable with size {}", getMetaClass().getRealClass().getVariableTableSizeWithExtras());
-                    varTable = myVarTable = new Object[getMetaClass().getRealClass().getVariableTableSizeWithExtras()];
-                }
-            }
-        } else if (myVarTable.length <= index) {
-            synchronized (this) {
-                myVarTable = varTable;
-                if (myVarTable.length <= index) {
-                    if (DEBUG) LOG.debug("resizing from {} to {}", myVarTable.length, getMetaClass().getRealClass().getVariableTableSizeWithExtras());
+                    return varTable = new Object[getMetaClass().getRealClass().getVariableTableSizeWithExtras()];
+                } else if (myVarTable.length <= index) {
                     Object[] newTable = new Object[getMetaClass().getRealClass().getVariableTableSizeWithExtras()];
                     System.arraycopy(myVarTable, 0, newTable, 0, myVarTable.length);
-                    varTable = myVarTable = newTable;
+                    return varTable = newTable;
+                } else {
+                    return myVarTable;
                 }
             }
         }
-        return myVarTable;
+
+        return varTable;
+    }
+
+
+    /**
+     * Get the variable table for write. If it is not set or not of the right size,
+     * atomically update it with an appropriate value.
+     *
+     * @param index the index of the value soon to be set
+     * @return the var table, ready for setting
+     */
+    private Object[] getVariableTableForWriteAtomic(int index) {
+        while (true) {
+            Object[] myVarTable = varTable;
+            Object[] newTable;
+
+            if (myVarTable == null) {
+                newTable = new Object[getMetaClass().getRealClass().getVariableTableSizeWithExtras()];
+            } else if (myVarTable.length <= index) {
+                newTable = new Object[getMetaClass().getRealClass().getVariableTableSizeWithExtras()];
+                System.arraycopy(myVarTable, 0, newTable, 0, myVarTable.length);
+            } else {
+                return myVarTable;
+            }
+
+            // proceed with atomic update of table, or retry
+            if (VARTABLE_UPDATER.compareAndSet(this, myVarTable, newTable)) {
+                return newTable;
+            }
+        }
     }
 
     public Object getVariable(int index) {

@@ -9,11 +9,10 @@ import org.jruby.ast.Node;
 import org.jruby.ast.RootNode;
 import org.jruby.compiler.ir.IRBuilder;
 import org.jruby.compiler.ir.IRMethod;
-import org.jruby.compiler.ir.IRModule;
 import org.jruby.compiler.ir.IREvalScript;
 import org.jruby.compiler.ir.IRScope;
 import org.jruby.compiler.ir.IRClosure;
-import org.jruby.compiler.ir.IRScript;
+import org.jruby.compiler.ir.IRScriptBody;
 import org.jruby.compiler.ir.instructions.CallBase;
 import org.jruby.compiler.ir.instructions.CopyInstr;
 import org.jruby.compiler.ir.instructions.JumpInstr;
@@ -46,6 +45,7 @@ import org.jruby.exceptions.ThreadKill;
 import org.jruby.parser.IRStaticScope;
 import org.jruby.parser.StaticScope;
 import org.jruby.internal.runtime.methods.InterpretedIRMethod;
+import org.jruby.parser.IRStaticScopeFactory;
 import org.jruby.runtime.Block;
 import org.jruby.runtime.Block.Type;
 import org.jruby.runtime.RubyEvent;
@@ -77,7 +77,7 @@ public class Interpreter {
         IRScope containingIRScope = ((IRStaticScope)ss.getEnclosingScope()).getIRScope();
         if (containingIRScope == null) containingIRScope = ((IRStaticScope)ss.getEnclosingScope().getEnclosingScope()).getIRScope();
 
-        IREvalScript evalScript = new IRBuilder().buildEvalRoot(ss, containingIRScope, file, lineNumber, rootNode);
+        IREvalScript evalScript = new IRBuilder(runtime.getIRManager()).buildEvalRoot(ss, containingIRScope, file, lineNumber, rootNode);
         evalScript.prepareForInterpretation();
 //        evalScript.runCompilerPass(new CallSplitter());
         ThreadContext context = runtime.getCurrentContext(); 
@@ -107,7 +107,7 @@ public class Interpreter {
     }
 
     public static IRubyObject interpret(Ruby runtime, Node rootNode, IRubyObject self) {
-        IRScript root = (IRScript) new IRBuilder().buildRoot((RootNode) rootNode);
+        IRScriptBody root = (IRScriptBody) new IRBuilder(runtime.getIRManager()).buildRoot((RootNode) rootNode);
 
         // We get the live object ball rolling here.  This give a valid value for the top
         // of this lexical tree.  All new scope can then retrieve and set based on lexical parent.
@@ -118,7 +118,7 @@ public class Interpreter {
         RubyModule currModule = root.getStaticScope().getModule();
 
         // Scope state for root?
-        IRModule.getRootObjectScope().setModule(currModule);
+        IRStaticScopeFactory.newIRLocalScope(null).setModule(currModule);
         ThreadContext context = runtime.getCurrentContext();
 
         try {
@@ -395,28 +395,16 @@ public class Interpreter {
         IRMethod methodToReturnFrom = returnInstr.methodToReturnFrom;
 
         if (inClosure) {
-            // Cannot return from root methods -- so find out where exactly we need to return.
-            if (methodToReturnFrom.isAModuleRootMethod()) {
-                methodToReturnFrom = methodToReturnFrom.getClosestNonRootMethodAncestor();
-                if (methodToReturnFrom == null) {
-                    if (context.getThread() == context.getRuntime().getThreadService().getMainThread()) {
-                        throw IRException.RETURN_LocalJumpError.getException(context.getRuntime());
-                    } else {
-                        throw context.getRuntime().newThreadError("return can't jump across threads");
-                    }
-                }
-            }
-
             // Cannot return to the call that we have long since exited.
             if (!context.scopeExistsOnCallStack(methodToReturnFrom.getStaticScope())) {
                 if (isDebug()) LOG.info("in scope: " + scope + ", raising unexpected return local jump error");
                 throw IRException.RETURN_LocalJumpError.getException(context.getRuntime());
             }
 
-            throw new IRReturnJump(methodToReturnFrom, returnValue);
+            throw IRReturnJump.create(methodToReturnFrom, returnValue);
         } else if ((methodToReturnFrom != null)) {
             // methodtoReturnFrom will not be null for explicit returns from class/module/sclass bodies
-            throw new IRReturnJump(methodToReturnFrom, returnValue);
+            throw IRReturnJump.create(methodToReturnFrom, returnValue);
         }        
     }
 

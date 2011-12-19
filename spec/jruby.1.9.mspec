@@ -78,6 +78,9 @@ class MSpecScript
   MSpec.enable_feature :encoding_transition
   MSpec.enable_feature :readline
 
+  # prepare additional tags for CI
+  set(:ci_xtags, ["java#{ENV_JAVA['java.specification.version']}"]) # Java version
+
   if WINDOWS
     # Some specs on Windows will fail in we launch JRuby via
     # ruby_exe() in-process (see core/argf/gets_spec.rb)
@@ -86,7 +89,7 @@ class MSpecScript
     get(:core) << '^' + SPEC_DIR + '/core/file/stat'    # many failures
 
     # exclude specs tagged with 'windows' keyword
-    set :ci_xtags, ['windows']
+    get(:ci_xtags) << 'windows'
   end
 
   # FIXME: add 1.9 library back at a later date

@@ -107,6 +107,7 @@ import org.jruby.ast.WhenNode;
 import org.jruby.ast.XStrNode;
 import org.jruby.ast.ZSuperNode;
 import org.jruby.compiler.NotCompilableException;
+import org.jruby.compiler.ir.IRBody.BodyType;
 import org.jruby.compiler.ir.compiler_pass.CFGBuilder;
 import org.jruby.compiler.ir.compiler_pass.IRPrinter;
 import org.jruby.compiler.ir.compiler_pass.InlineTest;
@@ -267,7 +268,7 @@ import org.jruby.util.log.LoggerFactory;
 // this is not a big deal.  Think this through!
 
 public class IRBuilder {
-
+    
     private static final Logger LOG = LoggerFactory.getLogger("IRBuilder");
 
     private static final UnexecutableNil U_NIL = UnexecutableNil.U_NIL;
@@ -300,7 +301,8 @@ public class IRBuilder {
             long t1 = new Date().getTime();
             Node ast = buildAST(isCommandLineScript, args[i]);
             long t2 = new Date().getTime();
-            IRScope scope = new IRBuilder().buildRoot((RootNode) ast);
+            IRManager manager = new IRManager();
+            IRScope scope = new IRBuilder(manager).buildRoot((RootNode) ast);
             long t3 = new Date().getTime();
             if (isDebug) {
                 LOG.debug("################## Before local optimization pass ##################");
@@ -430,6 +432,12 @@ public class IRBuilder {
 
     // Stack encoding nested rescue blocks -- this just tracks the start label of the blocks
     private Stack<Tuple<Label, Variable>> _rescueBlockStack = new Stack<Tuple<Label, Variable>>();
+    
+    private IRManager manager;
+    
+    public IRBuilder(IRManager manager) {
+        this.manager = manager;
+    }
 
     public static Node buildAST(boolean isCommandLineScript, String arg) {
         Ruby ruby = Ruby.getGlobalRuntime();
@@ -1052,16 +1060,13 @@ public class IRBuilder {
         String className = cpath.getName();
         Operand container = getContainerFromCPath(cpath, s);
 
-        IRClass c = new IRClass(s, (superClass instanceof WrappedIRModule) ? (IRClass)((WrappedIRModule)superClass).getModule() : null, className, classNode.getScope());
+        IRBody c = new IRBody(s, className, classNode.getScope(), BodyType.Class);
+        c.addInstr(new ReceiveSelfInstruction(c.getSelf()));
         Variable ret = s.getNewTemporaryVariable();
         s.addInstr(new DefineClassInstr(ret, c, container, superClass));
-        // SSS NOTE: This is a debugging tool that works in most cases and is not used
-        // at runtime by the executing code since this static nesting might be wrong.
-        IRModule nm = s.getNearestModule();
-        if (nm != null) nm.addClass(c);
 
         // Create a new nested builder to ensure this gets its own IR builder state 
-        Operand rv = (new IRBuilder()).build(classNode.getBodyNode(), c);
+        Operand rv = (new IRBuilder(manager)).build(classNode.getBodyNode(), c);
         if (rv != null) c.addInstr(new ReturnInstr(rv));
 
         return ret;
@@ -1081,16 +1086,14 @@ public class IRBuilder {
         Operand receiver = build(sclassNode.getReceiverNode(), s);
 
         // Create a dummy meta class and record it as being lexically defined in scope s
-        IRMetaClass mc = new IRMetaClass(s, sclassNode.getScope());
-        // SSS NOTE: This is a debugging tool that works in most cases and is not used
-        // at runtime by the executing code since this static nesting might be wrong.
-        IRModule nm = s.getNearestModule();
-        if (nm != null) nm.addClass(mc);
+        IRBody mc = new IRBody(s, manager.getMetaClassName(), sclassNode.getScope(), BodyType.MetaClass);
+        mc.addInstr(new ReceiveSelfInstruction(mc.getSelf()));
+
         Variable ret = s.getNewTemporaryVariable();
         s.addInstr(new DefineMetaClassInstr(ret, receiver, mc));
 
         // Create a new nested builder to ensure this gets its own IR builder state 
-        Operand rv = (new IRBuilder()).build(sclassNode.getBodyNode(), mc);
+        Operand rv = (new IRBuilder(manager)).build(sclassNode.getBodyNode(), mc);
         if (rv != null) mc.addInstr(new ReturnInstr(rv));
 
         return ret;
@@ -1152,10 +1155,8 @@ public class IRBuilder {
          * defer scope traversal to when we know where this scope has been spliced in.
          * ------------------------------------------------------------------------------- */
         IRScope current = s;
-        while (current != null && (   !(current instanceof IREvalScript)
-                                   && !(    (current instanceof IRMethod) 
-                                         && ((IRMethod)current).isAModuleRootMethod()
-                                         && !(current.getLexicalParent() instanceof IRMetaClass)))) {
+        while (current != null && !(current instanceof IREvalScript) &&
+                !(current.isBody() && !(current.getLexicalParent() != null && current.getLexicalParent().isBody()))) {
             current = current.getLexicalParent();
         }
 
@@ -1170,11 +1171,11 @@ public class IRBuilder {
     }
 
     private WrappedIRModule findContainerModule(IRScope s) {
-        IRModule nearestModule = s.getNearestModule();
-        return (nearestModule == null) ? WrappedIRModule.CURRENT_MODULE : new WrappedIRModule(nearestModule);
+        IRBody nearestModule = s.getNearestModule();
+        return (nearestModule == null) ? new WrappedIRModule(manager.getObject()) : new WrappedIRModule(nearestModule);
     }
 
-    private IRModule startingSearchScope(IRScope s) {
+    private IRBody startingSearchScope(IRScope s) {
         return s.getNearestModule();
     }
 
@@ -1187,7 +1188,7 @@ public class IRBuilder {
             Operand module = build(((Colon2Node) constNode).getLeftNode(), s);
             s.addInstr(new PutConstInstr(module, constDeclNode.getName(), val));
         } else { // colon3, assign in Object
-            WrappedIRModule object = new WrappedIRModule(IRClass.getCoreClass("Object"));            
+            WrappedIRModule object = new WrappedIRModule(manager.getObject());            
             s.addInstr(new PutConstInstr(object, constDeclNode.getName(), val));            
         }
 
@@ -1195,7 +1196,7 @@ public class IRBuilder {
     }
 
     private Operand searchConst(IRScope s, IRScope startingScope, String name) {
-        IRModule startingModule = startingSearchScope(startingScope);
+        IRBody startingModule = startingSearchScope(startingScope);
         Variable v = s.getNewTemporaryVariable();
         s.addInstr(new SearchConstInstr(v, startingModule, name));
         Label foundLabel = s.getNewLabel();
@@ -1234,7 +1235,7 @@ public class IRBuilder {
     }
 
     public Operand buildColon3(Colon3Node node, IRScope s) {
-        return searchConst(s, IRClass.getCoreClass("Object"), node.getName());
+        return searchConst(s, manager.getObject(), node.getName());
     }
 
     interface CodeBlock {
@@ -1745,7 +1746,7 @@ public class IRBuilder {
             Node bodyNode = defNode.getBodyNode();
 
             // Create a new nested builder to ensure this gets its own IR builder state 
-            Operand rv = (new IRBuilder()).build(bodyNode, method);
+            Operand rv = (new IRBuilder(manager)).build(bodyNode, method);
             if (rv != null) method.addInstr(new ReturnInstr(rv));
         } else {
             method.addInstr(new ReturnInstr(Nil.NIL));
@@ -1755,20 +1756,7 @@ public class IRBuilder {
     }
 
     public Operand buildDefn(MethodDefNode node, IRScope s) { // Instance method
-        Operand container;
-        IRMethod method;
-
-        // statically determine container where possible?
-        // DefineIstanceMethod IR interpretation currently relies on this static determination for handling top-level methods
-        if ((s instanceof IRMethod) && ((IRMethod)s).isAModuleRootMethod()) {
-            method = defineNewMethod(node, s, true);
-            // SSS NOTE: This is a debugging tool that works in most cases and is not used
-            // at runtime by the executing code since this static nesting might be wrong.
-            IRModule nm = s.getNearestModule();
-            if (nm != null) nm.addMethod(method);
-        } else {
-            method = defineNewMethod(node, s, true);
-        }
+        IRMethod method = defineNewMethod(node, s, true);
         s.addInstr(new DefineInstanceMethodInstr(new StringLiteral("--unused--"), method));
         return Nil.NIL;
     }
@@ -1776,13 +1764,7 @@ public class IRBuilder {
     public Operand buildDefs(DefsNode node, IRScope s) { // Class method
         Operand container =  build(node.getReceiverNode(), s);
         IRMethod method = defineNewMethod(node, s, false);
-        // ENEBO: Can all metaobjects be used for this?  closure?
-        //if (container instanceof WrappedIRModule) {
-        //     ((WrappedIRModule) container).getModule().addMethod(method);
-        //}
-        if (s.getLexicalParent() instanceof IRModule) {
-            ((IRModule)s.getLexicalParent()).addMethod(method);
-        }
+
         s.addInstr(new DefineClassMethodInstr(container, method));
         return Nil.NIL;
     }
@@ -2092,9 +2074,9 @@ public class IRBuilder {
         Fixnum s2 = new Fixnum((long)2);
 
         // Create a variable to hold the flip state 
-        IRMethod nearestMethod = s.getNearestMethod();
-        Variable flipState = nearestMethod.getNewFlipStateVariable();
-        nearestMethod.initFlipStateVariable(flipState, s1);
+        IRScope nearestNonClosure = s.getNearestNonClosureScope();
+        Variable flipState = nearestNonClosure.getNewFlipStateVariable();
+        nearestNonClosure.initFlipStateVariable(flipState, s1);
         if (s instanceof IRClosure) {
             flipState = ((LocalVariable)flipState).cloneForDepth(((IRClosure)s).getNestingDepth());
         }
@@ -2308,7 +2290,7 @@ public class IRBuilder {
 
         // Create a new nested builder to ensure this gets its own IR builder state 
         // like the ensure block stack
-        IRBuilder closureBuilder = new IRBuilder();
+        IRBuilder closureBuilder = new IRBuilder(manager);
 
             // Receive self
         closure.addInstr(new ReceiveSelfInstruction(getSelf(closure)));
@@ -2403,7 +2385,7 @@ public class IRBuilder {
                 container = findContainerModule(s);
             }
         } else { //::Bar
-            container = new WrappedIRModule(IRClass.getCoreClass("Object"));
+            container = new WrappedIRModule(manager.getObject());
         }
 
         return container;
@@ -2415,16 +2397,13 @@ public class IRBuilder {
         Operand container = getContainerFromCPath(cpath, s);
 
         // Build the new module
-        IRModule m = new IRModule(s, moduleName, moduleNode.getScope());
+        IRBody m = new IRBody(s, moduleName, moduleNode.getScope(), BodyType.Module);
+        m.addInstr(new ReceiveSelfInstruction(m.getSelf()));
         Variable ret = s.getNewTemporaryVariable();
         s.addInstr(new DefineModuleInstr(m, ret, container));
-        // SSS NOTE: This is a debugging tool that works in most cases and is not used
-        // at runtime by the executing code since this static nesting might be wrong.
-        IRModule nm = s.getNearestModule();
-        if (nm != null) nm.addModule(m);
 
         // Create a new nested builder to ensure this gets its own IR builder state 
-        Operand rv = (new IRBuilder()).build(moduleNode.getBodyNode(), m);
+        Operand rv = (new IRBuilder(manager)).build(moduleNode.getBodyNode(), m);
         if (rv != null) m.addInstr(new ReturnInstr(rv));
 
         return ret;
@@ -2961,12 +2940,8 @@ public class IRBuilder {
             // the closure is a proc.  If the closure is a lambda, then this is just a normal
             // return and the static methodToReturnFrom value is ignored 
             s.addInstr(new ReturnInstr(retVal, s.getClosestMethodAncestor()));
-        } else if (((IRMethod)s).isAModuleRootMethod()) {
-            IRMethod sm = ((IRMethod)s).getClosestNonRootMethodAncestor();
-
-            // Cannot return from root methods!
-            if (sm == null) s.addInstr(new ThrowExceptionInstr(IRException.RETURN_LocalJumpError));
-            else s.addInstr(new ReturnInstr(retVal, sm));
+        } else if (s.isBody()) {
+            s.addInstr(new ThrowExceptionInstr(IRException.RETURN_LocalJumpError));
         } else {
             s.addInstr(new ReturnInstr(retVal));
         }
@@ -2997,8 +2972,9 @@ public class IRBuilder {
         StaticScope staticScope = rootNode.getStaticScope();
 
         // Top-level script!
-        IRScript script = new IRScript("__file__", file, staticScope);
-
+        IRScriptBody script = new IRScriptBody("__file__", file, staticScope);
+        script.addInstr(new ReceiveSelfInstruction(script.getSelf()));
+        
         // Debug info: record file name
         script.addInstr(new FilenameInstr(file));
 
@@ -3035,10 +3011,7 @@ public class IRBuilder {
             // to 'define_method'.
             maddr = MethAddr.UNKNOWN_SUPER_TARGET;
         } else {
-            // The case where the method is a class root method is an error in the Ruby code.
-            // SSS FIXME: Should we insert an exception instruction here since we know this lexically?
-            IRMethod method = (IRMethod) s;
-            maddr = IRModule.isAModuleRootMethod(method) ? MethAddr.NO_METHOD : new MethAddr(method.getName());
+            maddr = new MethAddr(s.getName());
         }
         Variable ret = s.getNewTemporaryVariable();
         s.addInstr(new SuperInstr(ret, getSelf(s), maddr, args, block));
@@ -3046,10 +3019,18 @@ public class IRBuilder {
     }
 
     public Operand buildSuper(SuperNode superNode, IRScope s) {
+        if (s.isBody()) return buildSuperInScriptBody(s);
+        
         List<Operand> args = setupCallArgs(superNode.getArgsNode(), s);
         Operand  block = setupCallClosure(superNode.getIterNode(), s);
         if (block == null) block = s.getImplicitBlockArg();
         return buildSuperInstr(s, block, args.toArray(new Operand[args.size()]));
+    }
+    
+    private Operand buildSuperInScriptBody(IRScope s) {
+        Variable ret = s.getNewTemporaryVariable();
+        s.addInstr(new SuperInstr(ret, getSelf(s), MethAddr.NO_METHOD, NO_ARGS, null));
+        return ret;
     }
 
     public Operand buildSValue(SValueNode node, IRScope s) {
@@ -3185,6 +3166,8 @@ public class IRBuilder {
     }
 
     public Operand buildZSuper(ZSuperNode zsuperNode, IRScope s) {
+        if (s.isBody()) return buildSuperInScriptBody(s);
+        
         Operand[] args = getZSuperArgs(s);
         Operand block = setupCallClosure(zsuperNode.getIterNode(), s);
         if (block == null) block = s.getImplicitBlockArg();

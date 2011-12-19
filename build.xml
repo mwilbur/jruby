@@ -159,12 +159,6 @@
         <include name="**/*.rb"/>
       </fileset>
     </copy>
-    <copy todir="${jruby.classes.dir}/builtin" preservelastmodified="true">
-      <fileset dir="${lib.dir}/ruby/site_ruby/shared/builtin">
-        <include name="**/*.rb"/>
-        <include name="**/*.jar"/>
-      </fileset>
-    </copy>
     <property name="copy-resources.hasrun" value="true"/>
   </target>
   
@@ -280,6 +274,8 @@
       <patternset refid="java.src.pattern"/>
       <compilerarg line="-XDignore.symbol.file=true"/>
       <compilerarg line="-J-Xmx${jruby.compile.memory}"/>
+      <compilerarg line="-J-Dfile.encoding=UTF-8"/>
+      <compilerarg line="-J-Duser.language=en"/>
     </apt>
 
     <!-- Apply any instrumentation that is enabled (code coverage, etc) -->
@@ -539,9 +535,7 @@
 
     <taskdef name="jarjar" classname="com.tonicsystems.jarjar.JarJarTask" classpath="${build.lib.dir}/jarjar-1.0.jar"/>
     <jarjar destfile="${dest.lib.dir}/${filename}">
-      <fileset dir="${build.dir}/jar-stdlib">
-        <exclude name="META-INF/jruby.home/lib/ruby/site_ruby/shared/builtin/**"/>
-      </fileset>
+      <fileset dir="${build.dir}/jar-stdlib"/>
       <metainf dir="spi">
         <include name="services/**"/>
       </metainf>
@@ -596,9 +590,7 @@
     <taskdef name="jarjar" classname="com.tonicsystems.jarjar.JarJarTask" classpath="${build.lib.dir}/jarjar-1.0.jar"/>
     <jarjar destfile="${dest.lib.dir}/${filename}">
       <fileset dir="${jruby.classes.dir}"/>
-      <fileset dir="${build.dir}/jar-complete">
-        <exclude name="META-INF/jruby.home/lib/ruby/site_ruby/shared/builtin/**"/>
-      </fileset>
+      <fileset dir="${build.dir}/jar-complete"/>
       <zipfileset src="${asm.jar}"/>
       <zipfileset src="${asm.commons.jar}"/>
       <zipfileset src="${asm.util.jar}"/>
@@ -694,7 +686,7 @@
 
   <target name="compile-test" depends="jar" description="Compile the unit tests">
     <javac destdir="${test.classes.dir}" deprecation="true" encoding="UTF-8" debug="true"
-           source="${javac.version}" includeantruntime="false">
+           source="${javac.version}" target="${javac.version}" includeantruntime="false">
       <classpath>
         <path refid="jruby.execute.classpath"/>
         <pathelement path="${lib.dir}/jruby.jar"/>
@@ -747,8 +739,8 @@
     <emma enabled="${emma.enabled}" >
       <instr instrpathref="classes_to_instrument"
              mode="overwrite"
-             metadatafile="${test.results.dir}/metadata.emma"
-             merge="false">
+             metadatafile="${test.results.dir}/coverage.emma"
+             merge="true">
         <filter excludes="*INVOKER*"/>
       </instr>
     </emma>
@@ -760,7 +752,11 @@
         <fileset dir="${test.results.dir}" >
           <include name="*.emma" />
         </fileset>
-        <html outfile="${html.test.coverage.results.dir}/coverage.html" />
+        <fileset dir="${basedir}" >
+          <include name="*.ec" />
+        </fileset>
+        <html outfile="${test.coverage.results.dir}/coverage.html"/>
+        <xml outfile="${test.coverage.results.dir}/coverage.xml"/>
       </report>
     </emma>
   </target>
@@ -868,6 +864,7 @@
 
   <target name="test-all" depends="
       copy-test-files,
+      install-gems,
       test-security-manager,
       run-junit-interpreted,
       run-junit-compiled,
@@ -992,7 +989,7 @@
 
         <!-- force client VM to improve test run times AND -->
         <!-- set a larger max permgen, since the tests load a lot of bytecode -->
-        <jvmarg line="-ea ${java.opts} -client -XX:MaxPermSize=256M"/>
+        <jvmarg line="-ea ${java.opts} -client -XX:MaxPermSize=${jruby.test.memory.permgen}"/>
         
         <!-- additional flags -->
         <jvmarg line="@{jvm.flags}"/>

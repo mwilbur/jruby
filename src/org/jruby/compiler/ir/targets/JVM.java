@@ -1,5 +1,6 @@
 package org.jruby.compiler.ir.targets;
 
+import org.jruby.compiler.ir.IRBody;
 import org.jruby.compiler.ir.IRScope;
 import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
@@ -15,9 +16,8 @@ import org.jruby.ast.Node;
 import org.jruby.ast.RootNode;
 import org.jruby.compiler.ir.CompilerTarget;
 import org.jruby.compiler.ir.IRBuilder;
-import org.jruby.compiler.ir.IRClass;
 import org.jruby.compiler.ir.IRMethod;
-import org.jruby.compiler.ir.IRScript;
+import org.jruby.compiler.ir.IRScriptBody;
 import org.jruby.compiler.ir.compiler_pass.InlineTest;
 import org.jruby.compiler.ir.compiler_pass.opts.DeadCodeElimination;
 import org.jruby.compiler.ir.instructions.Instr;
@@ -42,7 +42,7 @@ public class JVM implements CompilerTarget {
     
     Stack<ClassData> clsStack = new Stack();
     List<ClassData> clsAccum = new ArrayList();
-    IRScript script;
+    IRScriptBody script;
 
     public JVM() {
     }
@@ -101,7 +101,7 @@ public class JVM implements CompilerTarget {
                 }
             }
             
-            IRScope scope = new IRBuilder().buildRoot((RootNode) ast);
+            IRScope scope = new IRBuilder(ruby.getIRManager()).buildRoot((RootNode) ast);
             
             // additional passes not enabled in builder yet
             if (deadCode) scope.runCompilerPass(new DeadCodeElimination());
@@ -153,17 +153,18 @@ public class JVM implements CompilerTarget {
     }
 
     public void codegen(IRScope scope) {
-        if (scope instanceof IRScript) {
-            codegen((IRScript)scope);
+        if (scope instanceof IRScriptBody) {
+            codegen((IRScriptBody)scope);
         }
     }
 
-    public void codegen(IRScript script) {
+    public void codegen(IRScriptBody script) {
         this.script = script;
         emit(script);
     }
 
-    public void emit(IRClass cls) {
+    // FIXME: In-flux and soon to be impossible
+    public void emit(IRBody cls) {
         pushclass();
         cls().visit(RubyInstanceConfig.JAVA_VERSION, ACC_PUBLIC + ACC_SUPER, cls.getName(), null, p(RubyObject.class), null);
         cls().visitSource(script.getFileName().toString(), null);
@@ -178,21 +179,11 @@ public class JVM implements CompilerTarget {
         // Root method
         emit(cls);
 
-        // Additional methods
-        for (IRMethod method : cls.getMethods()) {
-            emit(method);
-        }
-
-        // Nested classes
-        for (IRClass cls2 : cls.getClasses()) {
-            emit(cls2);
-        }
-
         cls().visitEnd();
         popclass();
     }
     
-    public void emit(IRScript script) {
+    public void emit(IRScriptBody script) {
         pushmethod("__script__", 0);
         
         for (Instr instr: script.getInstrs()) {
